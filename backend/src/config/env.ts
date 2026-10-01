@@ -128,8 +128,11 @@ export const env = {
   corsOrigins: list('CORS_ORIGINS'),
 
   supabase: {
-    url: str('SUPABASE_URL'),
-    publishableKey: str('SUPABASE_PUBLISHABLE_KEY'),
+    url: str('SUPABASE_URL', str('VITE_SUPABASE_URL', 'https://uvyszkdszzadoycbmeiy.supabase.co')),
+    publishableKey: str(
+      'SUPABASE_PUBLISHABLE_KEY',
+      str('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_WQ_usqzwALohMMj4D5VE4A_jvIxvI6g'),
+    ),
   },
 
   /**

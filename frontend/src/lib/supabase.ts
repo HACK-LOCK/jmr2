@@ -8,15 +8,18 @@ import type { OrderWithParts } from '@shared/domain';
  * Supports standard VITE_ prefixes as well as SUPABASE_ prefixed variables
  * via Vite's envPrefix configuration.
  */
+const DEFAULT_SUPABASE_URL = 'https://uvyszkdszzadoycbmeiy.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'sb_publishable_WQ_usqzwALohMMj4D5VE4A_jvIxvI6g';
+
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL ||
   import.meta.env.SUPABASE_URL ||
-  '';
+  DEFAULT_SUPABASE_URL;
 
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.SUPABASE_PUBLISHABLE_KEY ||
-  '';
+  DEFAULT_SUPABASE_KEY;
 
 /**
  * Check whether Supabase environment variables are present and non-empty.
