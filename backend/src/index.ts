@@ -1,3 +1,8 @@
+import dns from 'node:dns';
+try {
+  dns.setDefaultResultOrder?.('ipv4first');
+} catch {}
+
 import { createApp } from './app';
 import { env } from './config/env';
 import { getStore, initStore } from './data';
