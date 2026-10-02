@@ -14,6 +14,7 @@ import type {
   PartListItem,
   SearchHit,
   StockSummary,
+  StockHistoryReport,
   SupplierListItem,
 } from '@/lib/types';
 import type {
@@ -151,6 +152,21 @@ export const useBillHistory = (from: string, to: string) =>
         signal,
       ),
     enabled: Boolean(from && to),
+    placeholderData: (previous) => previous,
+  });
+
+/** Every stock addition batch and items, for the Stock History screen. */
+export const useStockHistory = (from?: string, to?: string, q?: string) =>
+  useQuery({
+    queryKey: ['stock', 'history', from ?? '', to ?? '', q ?? ''],
+    queryFn: ({ signal }) => {
+      const params = new URLSearchParams();
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      if (q) params.set('q', q);
+      const query = params.toString();
+      return unwrap<StockHistoryReport>(`/stock/history${query ? `?${query}` : ''}`, signal);
+    },
     placeholderData: (previous) => previous,
   });
 

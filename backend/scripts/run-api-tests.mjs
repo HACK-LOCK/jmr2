@@ -140,6 +140,9 @@ async function main() {
       // connection, which must never travel with a test run at all.
       DATABASE_URL: '',
       POSTGRES_ADMIN_URL: '',
+      SUPABASE_DISABLED: 'true',
+      SUPABASE_URL: '',
+      SUPABASE_PUBLISHABLE_KEY: '',
       // Sheets and Drive stay out of it: no test should talk to the real sheet.
       GOOGLE_SHEETS_ID: '',
       GOOGLE_DRIVE_ROOT_FOLDER_ID: '',

@@ -18,6 +18,7 @@ const Customers = lazy(() => import('@/pages/Customers'));
 const CustomerDetail = lazy(() => import('@/pages/CustomerDetail'));
 const SearchPage = lazy(() => import('@/pages/SearchPage'));
 const StockDesktop = lazy(() => import('@/pages/StockDesktop'));
+const StockHistory = lazy(() => import('@/pages/StockHistory'));
 const PartDetailPage = lazy(() => import('@/pages/PartDetailPage'));
 
 function FullScreenLoader(): JSX.Element {
@@ -125,11 +126,13 @@ export default function App(): JSX.Element {
 
           {/* JMR - STOCK */}
           <Route path="/stock" element={<StockDesktop />} />
+          <Route path="/stock-history" element={<StockHistory />} />
           <Route path="/stock/import" element={<StockDesktop mode="import" />} />
           <Route path="/stock/settings" element={<StockDesktop mode="settings" />} />
           <Route path="/parts/:id" element={<PartDetailPage />} />
 
           {/* Old links keep working and land on the right new screen. */}
+          <Route path="/stock/history" element={<Navigate to="/stock?tab=history" replace />} />
           <Route path="/repair/new" element={<Navigate to="/new" replace />} />
           <Route path="/billing" element={<Navigate to="/new" replace />} />
           <Route path="/pickup" element={<Navigate to="/orders?scope=active" replace />} />

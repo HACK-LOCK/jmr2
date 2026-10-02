@@ -150,4 +150,46 @@ export interface DeviceHints {
   models: { label: string; brand: string }[];
 }
 
+export interface StockAddedItem {
+  movementId: string;
+  partId: string;
+  partName: string;
+  category: string;
+  brand: string;
+  model: string;
+  quantityAdded: number;
+  balanceAfter: number;
+  purchaseCost: number;
+  sellingPrice: number;
+  totalCost: number;
+  supplierName: string;
+  reason: string;
+  time: string;
+}
+
+export interface StockAddedBatch {
+  id: string; // Stock Added ID e.g. "STK-ADD-0001"
+  batchKey: string;
+  date: string;
+  day: string;
+  user: string;
+  reason: string;
+  supplierName: string;
+  totalItems: number;
+  totalQuantity: number;
+  totalValue: number;
+  items: StockAddedItem[];
+}
+
+export interface StockHistoryReport {
+  from: string;
+  to: string;
+  totalBatches: number;
+  totalItems: number;
+  totalQuantity: number;
+  totalValue: number;
+  batches: StockAddedBatch[];
+  allAddedItems: (StockAddedItem & { stockAddedId: string; date: string; user: string })[];
+}
+
 export type { OrderStatus, ShopSettings, Part, RepairOrder, Payment, StockMovement };

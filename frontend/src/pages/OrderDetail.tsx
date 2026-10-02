@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Banknote,
   CheckCircle2,
-  ChevronLeft,
   CloudUpload,
   ExternalLink,
   FileText,
@@ -14,13 +13,13 @@ import {
   Phone,
   Plus,
   Printer,
-  Smartphone,
   Trash2,
   Truck,
   Wallet,
   Wrench,
   XCircle,
 } from 'lucide-react';
+import { PageHeader } from '@/components/app-shell';
 import {
   COUNTER_STATUSES,
   DEVICE_CONDITIONS,
@@ -113,56 +112,17 @@ export default function OrderDetail(): JSX.Element {
 
   return (
     <div className="space-y-4 pb-4">
-      {/* Top action row: Back arrow on the left, Call + WhatsApp + Status on the right */}
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Go back"
-          onClick={() => navigate(-1)}
-          className="h-10 w-10 shrink-0 rounded-xl"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-
-        <div className="flex items-center gap-1.5 shrink-0">
-          <ContactActions order={order} size="sm" iconOnly />
-          <StatusBadge status={order.status} size="lg" />
-        </div>
-      </div>
-
-      {/* Bill information: Structured customer name, order ID, device name and details */}
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="text-xl font-black leading-tight tracking-tight text-foreground sm:text-2xl">
-            {order.customerName}
-          </h1>
-          <span className="tabular rounded-md bg-primary/10 px-2.5 py-0.5 font-mono text-xs font-black tracking-wide text-primary">
-            {order.id}
-          </span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2.5 py-1 font-semibold text-secondary-foreground">
-            <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
-            {deviceLabel(order.brand, order.model, order.deviceType)}
-          </span>
-          {order.mobile ? (
-            <a
-              href={`tel:${order.mobile}`}
-              className="tabular inline-flex items-center gap-1 rounded-md bg-secondary px-2.5 py-1 font-semibold text-secondary-foreground hover:text-primary transition-colors"
-            >
-              <Phone className="h-3 w-3 text-muted-foreground" />
-              {order.mobile}
-            </a>
-          ) : null}
-          {order.complaint ? (
-            <span className="inline-flex items-center rounded-md bg-muted/70 px-2.5 py-1 text-muted-foreground line-clamp-1 max-w-[260px]">
-              {order.complaint}
-            </span>
-          ) : null}
-        </div>
-      </div>
+      <PageHeader
+        title={order.customerName}
+        subtitle={`${order.id} · ${order.mobile} · ${deviceLabel(order.brand, order.model, order.deviceType)}`}
+        back
+        action={
+          <div className="flex items-center gap-1.5 shrink-0">
+            <ContactActions order={order} size="sm" iconOnly />
+            <StatusBadge status={order.status} size="lg" />
+          </div>
+        }
+      />
 
       {order.pendingSync ? (
         <InlineNotice tone="warning">
@@ -1589,6 +1549,8 @@ function CancelOrderSheet({
               </div>
               {reason === 'Other reason' ? (
                 <Input
+                  id="cancel-custom-reason"
+                  name="cancel-custom-reason"
                   placeholder="Specify cancellation reason..."
                   value={customReason}
                   onChange={(e) => setCustomReason(e.target.value)}

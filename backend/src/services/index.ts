@@ -9,6 +9,7 @@ import * as settingsService from './settings';
 import * as suppliersService from './suppliers';
 import * as syncService from './sync';
 import * as googleSetupService from './googleSetup';
+import * as stockHistoryService from './stockHistory';
 import { userStore } from '../data/userStore';
 
 export {
@@ -21,6 +22,7 @@ export {
   partsService,
   searchService,
   settingsService,
+  stockHistoryService,
   suppliersService,
   syncService,
   userStore,

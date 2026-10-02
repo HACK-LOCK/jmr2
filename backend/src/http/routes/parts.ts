@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { exportsService, partsService } from '../../services';
+import { exportsService, partsService, stockHistoryService } from '../../services';
 import { actorName, requireAuth } from '../middleware/auth';
 import { asyncRoute, param, sendData } from '../middleware/respond';
 import {
@@ -99,6 +99,34 @@ partsRouter.delete(
   asyncRoute(async (req, res) => {
     const result = await partsService.deletePart(param(req, 'id'));
     sendData(res, result.data, result.warning);
+  }),
+);
+
+/* ---------------------------- stock history ------------------------- */
+
+partsRouter.get(
+  '/stock/history',
+  asyncRoute(async (req, res) => {
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    sendData(res, stockHistoryService.getStockHistory({ from, to, q }));
+  }),
+);
+
+partsRouter.get(
+  '/stock/history.xlsx',
+  asyncRoute(async (req, res) => {
+    const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+    const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const file = stockHistoryService.exportStockHistory({ from, to, q });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   }),
 );
 

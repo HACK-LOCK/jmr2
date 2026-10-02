@@ -112,6 +112,8 @@ export function DeviceLogSheet({
           {editingDevice ? (
             <div className="flex items-center gap-1.5 pt-1">
               <Input
+                id="device-custom-name"
+                name="device-custom-name"
                 value={customNameInput}
                 onChange={(e) => setCustomNameInput(e.target.value)}
                 placeholder="e.g. Counter PC, Mobile..."
@@ -172,6 +174,8 @@ export function DeviceLogSheet({
           {searchOpen ? (
             <div className="relative">
               <Input
+                id="device-log-search"
+                name="device-log-search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by Order ID (e.g. JMR-0016), Device, Tag..."

@@ -54,9 +54,11 @@ import type { PartListItem, SupplierListItem } from '@/lib/types';
 import SheetSync from './SheetSync';
 import Settings from './Settings';
 import { LowStockOrderSheet } from '@/components/low-stock-order-sheet';
+import { StockHistorySection } from './StockHistory';
 
 const TABS = [
   { key: 'items', label: 'All Items', icon: Package },
+  { key: 'history', label: 'Stock History', icon: History },
   { key: 'low', label: 'Low Stock', icon: AlertTriangle },
   { key: 'in', label: 'Stock In', icon: PackagePlus },
   { key: 'out', label: 'Stock Out', icon: PackageMinus },
@@ -149,6 +151,7 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
       </div>
 
       {tab === 'items' ? <ItemsSection /> : null}
+      {tab === 'history' ? <StockHistorySection /> : null}
       {tab === 'low' ? <ItemsSection lowOnly /> : null}
       {tab === 'in' ? <StockInSection /> : null}
       {tab === 'out' ? <StockOutSection /> : null}
@@ -489,6 +492,8 @@ function CompactStepper({ part }: { part: PartListItem }): JSX.Element {
         <Minus className="h-3 w-3" />
       </button>
       <input
+        id={`stepper-qty-${part.id}`}
+        name={`stepper-qty-${part.id}`}
         type="number"
         min={0}
         value={inputVal !== null ? inputVal : displayed}
