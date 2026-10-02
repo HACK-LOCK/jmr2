@@ -823,55 +823,69 @@ export async function syncAndRestoreSupabase(): Promise<SupabaseSyncResult> {
   const stockMovementsToPush: StockMovement[] = [];
 
   await mutate((draft) => {
-    // --- Merge Orders ---
-    const localOrderMap = new Map(draft.orders.map((o) => [o.id, o]));
-    for (const remoteOrder of remoteOrders) {
-      const local = localOrderMap.get(remoteOrder.id);
-      if (!local) {
-        draft.orders.push(remoteOrder);
-        localOrderMap.set(remoteOrder.id, remoteOrder);
-      } else {
-        // Keep the more recently updated version
-        const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
-        const remoteTime = new Date(remoteOrder.updatedAt || remoteOrder.createdAt || 0).getTime();
-        if (remoteTime > localTime) {
-          Object.assign(local, remoteOrder);
+    // If Supabase is at fresh start (0 orders and order_sequence 0), clear any lingering ghost orders
+    const isFreshStart = remoteOrders.length === 0 && (Number(remoteMetaRaw?.order_sequence) || 0) === 0;
+
+    if (isFreshStart) {
+      draft.orders = [];
+      draft.customers = [];
+      draft.payments = [];
+      draft.orderParts = [];
+      draft.statusHistory = [];
+      draft.meta.orderSequence = 0;
+    } else {
+      // --- Merge Orders ---
+      const localOrderMap = new Map(draft.orders.map((o) => [o.id, o]));
+      for (const remoteOrder of remoteOrders) {
+        const local = localOrderMap.get(remoteOrder.id);
+        if (!local) {
+          draft.orders.push(remoteOrder);
+          localOrderMap.set(remoteOrder.id, remoteOrder);
+        } else {
+          // Keep the more recently updated version
+          const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
+          const remoteTime = new Date(remoteOrder.updatedAt || remoteOrder.createdAt || 0).getTime();
+          if (remoteTime > localTime) {
+            Object.assign(local, remoteOrder);
+          }
         }
       }
-    }
-    // Check which local orders need pushing to Supabase
-    const remoteOrderIds = new Set(remoteOrders.map((o) => o.id));
-    for (const local of draft.orders) {
-      if (!remoteOrderIds.has(local.id)) {
-        ordersToPush.push(local);
+      // Check which local orders need pushing to Supabase
+      const remoteOrderIds = new Set(remoteOrders.map((o) => o.id));
+      for (const local of draft.orders) {
+        if (!remoteOrderIds.has(local.id)) {
+          ordersToPush.push(local);
+        }
       }
+      // Sort orders by receivedAt ascending
+      draft.orders.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
     }
-    // Sort orders by receivedAt ascending
-    draft.orders.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
     mergedOrdersCount = draft.orders.length;
 
-    // --- Merge Customers ---
-    const localCustomerMap = new Map(draft.customers.map((c) => [c.id, c]));
-    for (const remoteCustomer of remoteCustomers) {
-      const local = localCustomerMap.get(remoteCustomer.id);
-      if (!local) {
-        draft.customers.push(remoteCustomer);
-        localCustomerMap.set(remoteCustomer.id, remoteCustomer);
-      } else {
-        const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
-        const remoteTime = new Date(remoteCustomer.updatedAt || remoteCustomer.createdAt || 0).getTime();
-        if (remoteTime > localTime) {
-          Object.assign(local, remoteCustomer);
+    if (!isFreshStart) {
+      // --- Merge Customers ---
+      const localCustomerMap = new Map(draft.customers.map((c) => [c.id, c]));
+      for (const remoteCustomer of remoteCustomers) {
+        const local = localCustomerMap.get(remoteCustomer.id);
+        if (!local) {
+          draft.customers.push(remoteCustomer);
+          localCustomerMap.set(remoteCustomer.id, remoteCustomer);
+        } else {
+          const localTime = new Date(local.updatedAt || local.createdAt || 0).getTime();
+          const remoteTime = new Date(remoteCustomer.updatedAt || remoteCustomer.createdAt || 0).getTime();
+          if (remoteTime > localTime) {
+            Object.assign(local, remoteCustomer);
+          }
         }
       }
-    }
-    const remoteCustomerIds = new Set(remoteCustomers.map((c) => c.id));
-    for (const local of draft.customers) {
-      if (!remoteCustomerIds.has(local.id)) {
-        customersToPush.push(local);
+      const remoteCustomerIds = new Set(remoteCustomers.map((c) => c.id));
+      for (const local of draft.customers) {
+        if (!remoteCustomerIds.has(local.id)) {
+          customersToPush.push(local);
+        }
       }
+      mergedCustomersCount = draft.customers.length;
     }
-    mergedCustomersCount = draft.customers.length;
 
     // --- Merge Parts ---
     const localPartMap = new Map(draft.parts.map((p) => [p.id, p]));
@@ -919,49 +933,51 @@ export async function syncAndRestoreSupabase(): Promise<SupabaseSyncResult> {
     }
     mergedSuppliersCount = draft.suppliers.length;
 
-    // --- Merge Payments ---
-    const localPaymentMap = new Map(draft.payments.map((p) => [p.id, p]));
-    for (const remotePayment of remotePayments) {
-      if (!localPaymentMap.has(remotePayment.id)) {
-        draft.payments.push(remotePayment);
-        localPaymentMap.set(remotePayment.id, remotePayment);
+    if (!isFreshStart) {
+      // --- Merge Payments ---
+      const localPaymentMap = new Map(draft.payments.map((p) => [p.id, p]));
+      for (const remotePayment of remotePayments) {
+        if (!localPaymentMap.has(remotePayment.id)) {
+          draft.payments.push(remotePayment);
+          localPaymentMap.set(remotePayment.id, remotePayment);
+        }
       }
-    }
-    const remotePaymentIds = new Set(remotePayments.map((p) => p.id));
-    for (const local of draft.payments) {
-      if (!remotePaymentIds.has(local.id)) {
-        paymentsToPush.push(local);
+      const remotePaymentIds = new Set(remotePayments.map((p) => p.id));
+      for (const local of draft.payments) {
+        if (!remotePaymentIds.has(local.id)) {
+          paymentsToPush.push(local);
+        }
       }
-    }
-    mergedPaymentsCount = draft.payments.length;
+      mergedPaymentsCount = draft.payments.length;
 
-    // --- Merge Order Parts ---
-    const localOrderPartsMap = new Map(draft.orderParts.map((op) => [op.id, op]));
-    for (const remoteOrderPart of remoteOrderParts) {
-      if (!localOrderPartsMap.has(remoteOrderPart.id)) {
-        draft.orderParts.push(remoteOrderPart);
-        localOrderPartsMap.set(remoteOrderPart.id, remoteOrderPart);
+      // --- Merge Order Parts ---
+      const localOrderPartsMap = new Map(draft.orderParts.map((op) => [op.id, op]));
+      for (const remoteOrderPart of remoteOrderParts) {
+        if (!localOrderPartsMap.has(remoteOrderPart.id)) {
+          draft.orderParts.push(remoteOrderPart);
+          localOrderPartsMap.set(remoteOrderPart.id, remoteOrderPart);
+        }
       }
-    }
-    const remoteOrderPartIds = new Set(remoteOrderParts.map((op) => op.id));
-    for (const local of draft.orderParts) {
-      if (!remoteOrderPartIds.has(local.id)) {
-        orderPartsToPush.push(local);
+      const remoteOrderPartIds = new Set(remoteOrderParts.map((op) => op.id));
+      for (const local of draft.orderParts) {
+        if (!remoteOrderPartIds.has(local.id)) {
+          orderPartsToPush.push(local);
+        }
       }
-    }
 
-    // --- Merge Status History ---
-    const localStatusHistoryMap = new Map(draft.statusHistory.map((sh) => [sh.id, sh]));
-    for (const remoteSH of remoteStatusHistory) {
-      if (!localStatusHistoryMap.has(remoteSH.id)) {
-        draft.statusHistory.push(remoteSH);
-        localStatusHistoryMap.set(remoteSH.id, remoteSH);
+      // --- Merge Status History ---
+      const localStatusHistoryMap = new Map(draft.statusHistory.map((sh) => [sh.id, sh]));
+      for (const remoteSH of remoteStatusHistory) {
+        if (!localStatusHistoryMap.has(remoteSH.id)) {
+          draft.statusHistory.push(remoteSH);
+          localStatusHistoryMap.set(remoteSH.id, remoteSH);
+        }
       }
-    }
-    const remoteSHIds = new Set(remoteStatusHistory.map((sh) => sh.id));
-    for (const local of draft.statusHistory) {
-      if (!remoteSHIds.has(local.id)) {
-        statusHistoryToPush.push(local);
+      const remoteSHIds = new Set(remoteStatusHistory.map((sh) => sh.id));
+      for (const local of draft.statusHistory) {
+        if (!remoteSHIds.has(local.id)) {
+          statusHistoryToPush.push(local);
+        }
       }
     }
 
@@ -993,9 +1009,9 @@ export async function syncAndRestoreSupabase(): Promise<SupabaseSyncResult> {
 
     // --- Meta / Bill Sequence Counter ---
     // The sequence MUST be >= the highest bill ever created in either local or remote
-    const highestUsedSequence = highestOrderSequence(draft.orders.map((o) => o.id));
+    const highestUsedSequence = isFreshStart ? 0 : highestOrderSequence(draft.orders.map((o) => o.id));
     const remoteMetaSeq = Number(remoteMetaRaw?.order_sequence) || 0;
-    const finalSequence = Math.max(draft.meta.orderSequence || 0, remoteMetaSeq, highestUsedSequence);
+    const finalSequence = isFreshStart ? 0 : Math.max(draft.meta.orderSequence || 0, remoteMetaSeq, highestUsedSequence);
 
     draft.meta.orderSequence = finalSequence;
     draft.meta.lastPullAt = new Date().toISOString();
@@ -1066,4 +1082,36 @@ export async function syncAndRestoreSupabase(): Promise<SupabaseSyncResult> {
     restoredFromSupabase: true,
     errors,
   };
+}
+
+/**
+ * Permanently wipes all bills, orders, payments, order parts, status history,
+ * and test customers from both Supabase and the active in-memory database,
+ * resetting the sequence counter to 0 so the next bill starts at JMR-0001.
+ */
+export async function clearAllBills(): Promise<{ success: boolean; message: string }> {
+  const sb = getSupabaseClient();
+  if (sb) {
+    try {
+      await sb.from('order_parts').delete().neq('id', '___wipe___');
+      await sb.from('status_history').delete().neq('id', '___wipe___');
+      await sb.from('payments').delete().neq('id', '___wipe___');
+      await sb.from('orders').delete().neq('id', '___wipe___');
+      await sb.from('customers').delete().neq('id', '___wipe___');
+      await sb.from('meta').upsert({ id: 1, order_sequence: 0, last_push_at: null, last_pull_at: null });
+    } catch (err) {
+      console.warn('[supabase] clearAllBills error on remote:', err);
+    }
+  }
+
+  await mutate((draft) => {
+    draft.orders = [];
+    draft.customers = [];
+    draft.payments = [];
+    draft.orderParts = [];
+    draft.statusHistory = [];
+    draft.meta.orderSequence = 0;
+  });
+
+  return { success: true, message: 'All bills and test customers cleared. Sequence reset to JMR-0001.' };
 }
