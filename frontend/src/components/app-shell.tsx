@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Building2,
   ChevronLeft,
   ClipboardList,
@@ -9,6 +10,7 @@ import {
   Moon,
   MoreVertical,
   Package,
+  PackageMinus,
   PackagePlus,
   PlusCircle,
   RefreshCw,
@@ -66,6 +68,7 @@ export const SIDES: Record<
     accent: 'bg-success',
     items: [
       { to: '/stock', label: 'Stock Home', short: 'Home', icon: Package, end: true, primary: true },
+      { to: '/stock-history', label: 'Stock History', short: 'History', icon: History, primary: true },
       { to: '/stock/import', label: 'Add / Import Stock', short: 'Add/Import', icon: PackagePlus, primary: true },
       { to: '/stock/settings', label: 'Stock Settings', short: 'Setting', icon: Settings, primary: true },
     ],
@@ -157,6 +160,9 @@ function MenuItems({
   onSideChange?: (s: SideKey) => void;
   onOpenLogs?: () => void;
 }): JSX.Element {
+  const [activeSection, setActiveSection] = useState<'billing' | 'stock'>(
+    side === 'stock' ? 'stock' : 'billing',
+  );
   const [syncing, setSyncing] = useState(false);
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -180,56 +186,115 @@ function MenuItems({
   };
 
   return (
-    <>
-      {/* Billing / Stock switcher — shown only in the mobile 3-dot menu */}
-      {onSideChange ? (
-        <>
-          <div className="px-3 pb-1 pt-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Switch Area</p>
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => { onSideChange('billing'); onPick('/'); }}
-            className={cn(
-              'flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition-colors active:bg-secondary',
-              side === 'billing' ? 'text-primary font-black' : 'text-foreground',
-            )}
-          >
-            <ClipboardList className="h-4 w-4 shrink-0" />
-            Billing
-            {side === 'billing' ? <span className="ml-auto h-2 w-2 rounded-full bg-primary" /> : null}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => { onSideChange('stock'); onPick('/stock'); }}
-            className={cn(
-              'flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition-colors active:bg-secondary',
-              side === 'stock' ? 'text-success font-black' : 'text-foreground',
-            )}
-          >
-            <Package className="h-4 w-4 shrink-0" />
-            Stock
-            {side === 'stock' ? <span className="ml-auto h-2 w-2 rounded-full bg-success" /> : null}
-          </button>
-          <div className="my-1 border-t" />
-        </>
-      ) : null}
-      <MenuItem icon={ClipboardList} label="Bill History" onClick={() => onPick('/bill-history')} />
-      <MenuItem icon={Users} label="Customers" onClick={() => onPick('/customers')} />
-      <MenuItem
-        icon={RefreshCw}
-        label={syncing ? 'Syncing Supabase...' : 'Sync with Supabase'}
-        spinning={syncing}
-        onClick={() => void handleSync()}
-      />
-      {onOpenLogs ? (
-        <MenuItem icon={History} label="Log / Edit History" onClick={onOpenLogs} />
-      ) : null}
-      <div className="my-1 border-t" />
-      <MenuItem icon={LogOut} label="Logout" onClick={onSignOut} tone="destructive" />
-    </>
+    <div className="space-y-2.5">
+      {/* 2-Button Segmented Selector: Left = Bill, Right = Stock */}
+      <div className="grid grid-cols-2 gap-1.5 rounded-xl border bg-muted/70 p-1">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSection('billing');
+            onSideChange?.('billing');
+          }}
+          className={cn(
+            'flex min-h-[42px] items-center justify-center gap-2 rounded-lg text-xs font-bold transition-all sm:text-sm',
+            activeSection === 'billing'
+              ? 'bg-primary text-primary-foreground font-black shadow-sm'
+              : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+          )}
+        >
+          <ClipboardList className="h-4 w-4 shrink-0" />
+          <span>Bill</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveSection('stock');
+            onSideChange?.('stock');
+          }}
+          className={cn(
+            'flex min-h-[42px] items-center justify-center gap-2 rounded-lg text-xs font-bold transition-all sm:text-sm',
+            activeSection === 'stock'
+              ? 'bg-success text-success-foreground font-black shadow-sm'
+              : 'text-muted-foreground hover:bg-background/80 hover:text-foreground',
+          )}
+        >
+          <Package className="h-4 w-4 shrink-0" />
+          <span>Stock</span>
+        </button>
+      </div>
+
+      {/* Button-styled option cards */}
+      {activeSection === 'billing' ? (
+        <div className="space-y-1.5 pt-1">
+          <MenuItem
+            icon={ClipboardList}
+            label="Bill History"
+            onClick={() => onPick('/bill-history')}
+          />
+          <MenuItem
+            icon={Users}
+            label="Customers"
+            onClick={() => onPick('/customers')}
+          />
+        </div>
+      ) : (
+        <div className="space-y-1.5 pt-1">
+          <MenuItem
+            icon={History}
+            label="Stock History"
+            onClick={() => onPick('/stock-history')}
+          />
+          <MenuItem
+            icon={Package}
+            label="All Items"
+            onClick={() => onPick('/stock')}
+          />
+          <MenuItem
+            icon={AlertTriangle}
+            label="Low Stock"
+            onClick={() => onPick('/stock?tab=low')}
+          />
+          <MenuItem
+            icon={PackagePlus}
+            label="Stock In"
+            onClick={() => onPick('/stock?tab=in')}
+          />
+          <MenuItem
+            icon={PackageMinus}
+            label="Stock Out"
+            onClick={() => onPick('/stock?tab=out')}
+          />
+          <MenuItem
+            icon={Building2}
+            label="Suppliers"
+            onClick={() => onPick('/stock?tab=suppliers')}
+          />
+        </div>
+      )}
+
+      {/* Common actions for BOTH Bill and Stock */}
+      <div className="space-y-1.5 border-t pt-2">
+        <MenuItem
+          icon={RefreshCw}
+          label={syncing ? 'Syncing Supabase...' : 'Sync with Supabase'}
+          spinning={syncing}
+          onClick={() => void handleSync()}
+        />
+        {onOpenLogs ? (
+          <MenuItem
+            icon={History}
+            label="Log / Edit History"
+            onClick={onOpenLogs}
+          />
+        ) : null}
+        <MenuItem
+          icon={LogOut}
+          label="Logout"
+          onClick={onSignOut}
+          tone="destructive"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -422,12 +487,14 @@ function MenuItem({
       role="menuitem"
       onClick={onClick}
       className={cn(
-        'flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition-colors active:bg-secondary',
-        tone === 'destructive' ? 'text-destructive' : 'text-foreground',
+        'flex min-h-[44px] w-full items-center gap-3 rounded-xl border border-border/60 bg-card px-3 text-left text-sm font-semibold transition-all hover:bg-secondary/70 active:scale-[0.98]',
+        tone === 'destructive'
+          ? 'border-destructive/30 text-destructive hover:bg-destructive/10'
+          : 'text-foreground',
       )}
     >
       <Icon className={cn('h-4 w-4 shrink-0', spinning && 'animate-spin')} />
-      {label}
+      <span className="flex-1">{label}</span>
     </button>
   );
 }

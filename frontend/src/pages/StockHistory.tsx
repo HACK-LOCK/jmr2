@@ -12,8 +12,10 @@ import {
   Layers,
   ListFilter,
   Package,
+  Pencil,
   Search,
   Tag,
+  Trash2,
   TriangleAlert,
   User,
   Wallet,
@@ -23,12 +25,19 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { EmptyState, ErrorBlock, LoadingBlock } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
+import { Sheet } from '@/components/ui/sheet';
 import { useToast } from '@/components/ui/toast';
-import { useStockHistory } from '@/hooks/use-queries';
+import {
+  useStockHistory,
+  useDeleteStockItem,
+  useDeleteStockBatch,
+  useUpdateStockItem,
+  useUpdateStockBatch,
+} from '@/hooks/use-queries';
 import { downloadProtectedFile } from '@/lib/api';
 import { money, plusDaysIso, plural, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { StockAddedBatch } from '@/lib/types';
+import type { StockAddedBatch, StockAddedItem } from '@/lib/types';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -68,6 +77,12 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
   const [viewType, setViewType] = useState<'batches' | 'items'>('batches');
   const [downloading, setDownloading] = useState(false);
   const [expandedBatches, setExpandedBatches] = useState<Record<string, boolean>>({});
+
+  // Edit / Delete dialog states
+  const [editingItem, setEditingItem] = useState<(StockAddedItem & { batchId?: string }) | null>(null);
+  const [deletingItem, setDeletingItem] = useState<(StockAddedItem & { batchId?: string }) | null>(null);
+  const [editingBatch, setEditingBatch] = useState<StockAddedBatch | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState<StockAddedBatch | null>(null);
 
   const activeFrom = mode === 'all' ? '' : mode === 'day' ? day : from;
   const activeTo = mode === 'all' ? '' : mode === 'day' ? day : to;
@@ -174,7 +189,7 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
               <History className="h-5 w-5 text-primary" /> Stock Addition History
             </h2>
             <p className="text-xs text-muted-foreground">
-              Track when, where, and which stock was added together with Stock Added IDs
+              Track, edit, or remove added stock batches and items with Stock Added IDs
             </p>
           </div>
           <Button
@@ -417,6 +432,10 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
                     batch={batch}
                     expanded={expanded}
                     onToggle={() => toggleBatch(batch.id)}
+                    onEditBatch={() => setEditingBatch(batch)}
+                    onDeleteBatch={() => setDeletingBatch(batch)}
+                    onEditItem={(item) => setEditingItem({ ...item, batchId: batch.id })}
+                    onDeleteItem={(item) => setDeletingItem({ ...item, batchId: batch.id })}
                   />
                 );
               })}
@@ -434,8 +453,9 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
                     <th className="px-3 py-2.5 font-bold text-center text-muted-foreground">Added Qty</th>
                     <th className="px-3 py-2.5 font-bold text-center text-muted-foreground">Stock After</th>
                     <th className="px-3 py-2.5 font-bold text-right text-muted-foreground">Cost</th>
-                    <th className="px-3 py-2.5 font-bold text-muted-foreground">Added By</th>
+                    <th className="px-3 py-2.5 font-bold text-muted-foreground">Supplier</th>
                     <th className="px-3 py-2.5 font-bold text-muted-foreground">Reason</th>
+                    <th className="px-3 py-2.5 font-bold text-center text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -470,12 +490,34 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
                         {it.purchaseCost > 0 ? money(it.purchaseCost) : '₹0'}
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">
-                        {it.user}
+                        {it.supplierName || '-'}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold">
                           {it.reason}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            title="Edit this addition"
+                            aria-label={`Edit ${it.partName}`}
+                            onClick={() => setEditingItem(it)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete this addition"
+                            aria-label={`Delete ${it.partName}`}
+                            onClick={() => setDeletingItem(it)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -485,6 +527,42 @@ export function StockHistorySection({ standalone = false }: { standalone?: boole
           )}
         </>
       )}
+
+      {/* Edit Item Sheet */}
+      {editingItem ? (
+        <EditItemSheet
+          item={editingItem}
+          open={Boolean(editingItem)}
+          onClose={() => setEditingItem(null)}
+        />
+      ) : null}
+
+      {/* Delete Item Confirmation Sheet */}
+      {deletingItem ? (
+        <DeleteItemSheet
+          item={deletingItem}
+          open={Boolean(deletingItem)}
+          onClose={() => setDeletingItem(null)}
+        />
+      ) : null}
+
+      {/* Edit Batch Sheet */}
+      {editingBatch ? (
+        <EditBatchSheet
+          batch={editingBatch}
+          open={Boolean(editingBatch)}
+          onClose={() => setEditingBatch(null)}
+        />
+      ) : null}
+
+      {/* Delete Batch Confirmation Sheet */}
+      {deletingBatch ? (
+        <DeleteBatchSheet
+          batch={deletingBatch}
+          open={Boolean(deletingBatch)}
+          onClose={() => setDeletingBatch(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -496,10 +574,18 @@ function BatchCard({
   batch,
   expanded,
   onToggle,
+  onEditBatch,
+  onDeleteBatch,
+  onEditItem,
+  onDeleteItem,
 }: {
   batch: StockAddedBatch;
   expanded: boolean;
   onToggle: () => void;
+  onEditBatch: () => void;
+  onDeleteBatch: () => void;
+  onEditItem: (item: StockAddedItem) => void;
+  onDeleteItem: (item: StockAddedItem) => void;
 }): JSX.Element {
   return (
     <Card className="overflow-hidden border-2 transition-all shadow-xs">
@@ -532,7 +618,7 @@ function BatchCard({
             </p>
           </div>
 
-          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0">
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0">
             {/* Quick Metrics */}
             <div className="flex items-center gap-3 text-right">
               <div className="text-center sm:text-right">
@@ -551,27 +637,46 @@ function BatchCard({
               ) : null}
             </div>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggle();
-              }}
-              className="gap-1 font-bold text-xs"
-            >
-              {expanded ? (
-                <>
-                  <span>Hide Items</span>
-                  <ChevronUp className="h-4 w-4" />
-                </>
-              ) : (
-                <>
-                  <span>View Items ({batch.items.length})</span>
-                  <ChevronDown className="h-4 w-4" />
-                </>
-              )}
-            </Button>
+            {/* Actions: Edit batch, Delete batch, Toggle */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                title="Edit batch notes or supplier"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditBatch();
+                }}
+                className="h-8 px-2.5 gap-1 text-xs"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Edit</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                title="Delete this entire batch"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteBatch();
+                }}
+                className="h-8 px-2.5 gap-1 text-xs text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Delete</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle();
+                }}
+                className="h-8 px-2 text-xs"
+              >
+                {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -595,6 +700,7 @@ function BatchCard({
                     <th className="px-3 py-2 font-bold text-center text-muted-foreground">Stock After</th>
                     <th className="px-3 py-2 font-bold text-right text-muted-foreground">Unit Cost</th>
                     <th className="px-3 py-2 font-bold text-right text-muted-foreground">Total</th>
+                    <th className="px-3 py-2 font-bold text-center text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -625,6 +731,28 @@ function BatchCard({
                       <td className="px-3 py-2 text-right tabular font-bold text-foreground">
                         {it.totalCost > 0 ? money(it.totalCost) : '₹0'}
                       </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            title="Edit this item"
+                            aria-label={`Edit ${it.partName}`}
+                            onClick={() => onEditItem(it)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete this addition"
+                            aria-label={`Delete ${it.partName}`}
+                            onClick={() => onDeleteItem(it)}
+                            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -634,6 +762,428 @@ function BatchCard({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Edit Item Sheet
+ */
+function EditItemSheet({
+  item,
+  open,
+  onClose,
+}: {
+  item: StockAddedItem;
+  open: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const toast = useToast();
+  const updateMutation = useUpdateStockItem();
+
+  const [partName, setPartName] = useState(item.partName);
+  const [category, setCategory] = useState(item.category);
+  const [brand, setBrand] = useState(item.brand);
+  const [model, setModel] = useState(item.model);
+  const [quantity, setQuantity] = useState(String(item.quantityAdded));
+  const [purchaseCost, setPurchaseCost] = useState(String(item.purchaseCost || ''));
+  const [sellingPrice, setSellingPrice] = useState(String(item.sellingPrice || ''));
+  const [supplierName, setSupplierName] = useState(item.supplierName);
+  const [reason, setReason] = useState(item.reason);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = parseInt(quantity, 10);
+    if (Number.isNaN(qty) || qty <= 0) {
+      toast.error('Invalid quantity', 'Please enter a valid positive quantity.');
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        movementId: item.movementId,
+        patch: {
+          quantityAdded: qty,
+          partName: partName.trim(),
+          category: category.trim(),
+          brand: brand.trim(),
+          model: model.trim(),
+          purchaseCost: purchaseCost ? parseFloat(purchaseCost) : 0,
+          sellingPrice: sellingPrice ? parseFloat(sellingPrice) : 0,
+          supplierName: supplierName.trim(),
+          reason: reason.trim(),
+        },
+      });
+      toast.success('Stock addition updated', `Updated ${partName} to +${qty} units.`);
+      onClose();
+    } catch (err) {
+      toast.error('Could not update', err instanceof Error ? err.message : 'Please try again.');
+    }
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title="Edit Stock Addition"
+      description={`Update quantity or details for ${item.partName}`}
+    >
+      <form onSubmit={handleSave} className="space-y-3.5 pb-2">
+        <div className="space-y-1">
+          <label htmlFor="edit-stock-part-name" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+            Part Name
+          </label>
+          <Input
+            id="edit-stock-part-name"
+            name="edit-stock-part-name"
+            value={partName}
+            onChange={(e) => setPartName(e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-qty" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Quantity Added
+            </label>
+            <Input
+              id="edit-stock-qty"
+              name="edit-stock-qty"
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-category" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Category
+            </label>
+            <Input
+              id="edit-stock-category"
+              name="edit-stock-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-brand" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Brand
+            </label>
+            <Input
+              id="edit-stock-brand"
+              name="edit-stock-brand"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-model" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Model
+            </label>
+            <Input
+              id="edit-stock-model"
+              name="edit-stock-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-purchase-cost" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Purchase Cost (₹)
+            </label>
+            <Input
+              id="edit-stock-purchase-cost"
+              name="edit-stock-purchase-cost"
+              type="number"
+              min={0}
+              step="any"
+              value={purchaseCost}
+              onChange={(e) => setPurchaseCost(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="edit-stock-selling-price" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+              Selling Price (₹)
+            </label>
+            <Input
+              id="edit-stock-selling-price"
+              name="edit-stock-selling-price"
+              type="number"
+              min={0}
+              step="any"
+              value={sellingPrice}
+              onChange={(e) => setSellingPrice(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="edit-stock-supplier" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+            Supplier Name
+          </label>
+          <Input
+            id="edit-stock-supplier"
+            name="edit-stock-supplier"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+            placeholder="e.g. Modasa Parts Trader"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="edit-stock-reason" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+            Reason / Notes
+          </label>
+          <Input
+            id="edit-stock-reason"
+            name="edit-stock-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Stock import, Weekly purchase"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={updateMutation.isPending} loadingText="Saving...">
+            Save Changes
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+/**
+ * Delete Item Confirmation Sheet
+ */
+function DeleteItemSheet({
+  item,
+  open,
+  onClose,
+}: {
+  item: StockAddedItem;
+  open: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const toast = useToast();
+  const deleteMutation = useDeleteStockItem();
+
+  const handleDelete = async () => {
+    try {
+      await deleteMutation.mutateAsync(item.movementId);
+      toast.success(
+        'Stock addition removed',
+        `Reverted +${item.quantityAdded} units of ${item.partName}.`,
+      );
+      onClose();
+    } catch (err) {
+      toast.error('Could not delete', err instanceof Error ? err.message : 'Please try again.');
+    }
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title="Delete Stock Addition?"
+      description="This will safely revert the added stock quantity."
+    >
+      <div className="space-y-4 pb-2">
+        <div className="rounded-xl border bg-muted/40 p-3 space-y-1 text-sm">
+          <p className="font-bold text-foreground">{item.partName}</p>
+          <p className="text-xs text-muted-foreground">
+            Quantity Added: <span className="font-bold text-destructive">+{item.quantityAdded} pcs</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Stock after removal: <span className="font-semibold text-foreground">{Math.max(0, item.balanceAfter - item.quantityAdded)} pcs</span>
+          </p>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Deleting this addition entry will subtract {item.quantityAdded} units from the current stock shelf balance and remove the movement record.
+        </p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Keep It
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void handleDelete()}
+            loading={deleteMutation.isPending}
+            loadingText="Deleting..."
+          >
+            Confirm Delete
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * Edit Batch Sheet
+ */
+function EditBatchSheet({
+  batch,
+  open,
+  onClose,
+}: {
+  batch: StockAddedBatch;
+  open: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const toast = useToast();
+  const updateMutation = useUpdateStockBatch();
+  const [reason, setReason] = useState(batch.reason);
+  const [supplierName, setSupplierName] = useState(batch.supplierName);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await updateMutation.mutateAsync({
+        batchId: batch.id,
+        patch: {
+          reason: reason.trim(),
+          supplierName: supplierName.trim(),
+        },
+      });
+      toast.success('Batch updated', `Updated batch ${batch.id}.`);
+      onClose();
+    } catch (err) {
+      toast.error('Could not update', err instanceof Error ? err.message : 'Please try again.');
+    }
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title={`Edit Batch ${batch.id}`}
+      description={`Update batch note or supplier for all ${batch.totalItems} items in this batch`}
+    >
+      <form onSubmit={handleSave} className="space-y-3.5 pb-2">
+        <div className="space-y-1">
+          <label htmlFor="edit-batch-reason" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+            Batch Reason / Tag
+          </label>
+          <Input
+            id="edit-batch-reason"
+            name="edit-batch-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Stock import, Modasa Market invoice #44"
+            required
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label htmlFor="edit-batch-supplier" className="text-2xs font-bold uppercase tracking-wider text-muted-foreground">
+            Supplier Name (Applied to parts in this batch)
+          </label>
+          <Input
+            id="edit-batch-supplier"
+            name="edit-batch-supplier"
+            value={supplierName}
+            onChange={(e) => setSupplierName(e.target.value)}
+            placeholder="e.g. Bharat Electronics"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={updateMutation.isPending} loadingText="Saving...">
+            Save Batch
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+/**
+ * Delete Batch Confirmation Sheet
+ */
+function DeleteBatchSheet({
+  batch,
+  open,
+  onClose,
+}: {
+  batch: StockAddedBatch;
+  open: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  const toast = useToast();
+  const deleteMutation = useDeleteStockBatch();
+
+  const handleDelete = async () => {
+    try {
+      await deleteMutation.mutateAsync(batch.id);
+      toast.success(
+        'Batch deleted',
+        `Reverted ${batch.totalQuantity} units across ${batch.totalItems} parts in ${batch.id}.`,
+      );
+      onClose();
+    } catch (err) {
+      toast.error('Could not delete batch', err instanceof Error ? err.message : 'Please try again.');
+    }
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title={`Delete Batch ${batch.id}?`}
+      description="This will revert all stock units added in this batch."
+    >
+      <div className="space-y-4 pb-2">
+        <div className="rounded-xl border bg-destructive/5 border-destructive/20 p-3 space-y-1 text-sm">
+          <p className="font-bold text-destructive">Warning: Batch Deletion</p>
+          <p className="text-xs text-muted-foreground">
+            Stock Added ID: <span className="font-mono font-bold text-foreground">{batch.id}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Parts affected: <span className="font-bold text-foreground">{batch.totalItems} distinct parts</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Total units to revert: <span className="font-bold text-destructive">{batch.totalQuantity} pcs</span>
+          </p>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          This operation will subtract the added quantities from the shelf stock of each part and delete the batch records.
+        </p>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void handleDelete()}
+            loading={deleteMutation.isPending}
+            loadingText="Deleting Batch..."
+          >
+            Confirm Delete Batch
+          </Button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 

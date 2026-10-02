@@ -1,8 +1,15 @@
 import { round2, type Part, type StockMovement } from '../../../shared/domain';
-import { read } from '../data/mutate';
-import { ValidationError } from '../core/errors';
+import { mutate, read } from '../data/mutate';
+import { NotFoundError, ValidationError } from '../core/errors';
+import { nowIso } from '../core/id';
 import { shopDateString } from '../core/datetime';
 import { buildWorkbook, type XlsxColumn } from '../xlsx/workbook';
+import {
+  deleteStockMovementFromSupabase,
+  deleteStockMovementsFromSupabase,
+  syncPartToSupabase,
+  syncStockMovementToSupabase,
+} from './supabaseSync';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -360,4 +367,191 @@ export function exportStockHistory(filter: {
   const filename = `JMR-Stock-History-${rangeSuffix}.xlsx`;
 
   return { filename, buffer };
+}
+
+export interface StockItemPatch {
+  quantityAdded?: number;
+  purchaseCost?: number;
+  sellingPrice?: number;
+  supplierName?: string;
+  reason?: string;
+  partName?: string;
+  brand?: string;
+  model?: string;
+  category?: string;
+}
+
+export interface StockBatchPatch {
+  reason?: string;
+  supplierName?: string;
+}
+
+/**
+ * Delete a specific stock addition item (movement) and restore part balance.
+ */
+export async function deleteStockAddedItem(
+  movementId: string,
+): Promise<{ success: boolean; movementId: string; partId: string }> {
+  let affectedPartId = '';
+  await mutate((draft) => {
+    const idx = draft.stockMovements.findIndex((m) => m.id === movementId);
+    const movement = draft.stockMovements[idx];
+    if (!movement) throw new NotFoundError('Stock movement record not found.');
+    affectedPartId = movement.partId;
+
+    const part = draft.parts.find((p) => p.id === movement.partId);
+    if (part) {
+      part.quantity = Math.max(0, round2(part.quantity - movement.quantity));
+      part.updatedAt = nowIso();
+    }
+
+    draft.stockMovements.splice(idx, 1);
+  });
+
+  if (affectedPartId) {
+    void syncPartToSupabase(affectedPartId).catch(() => undefined);
+  }
+  void deleteStockMovementFromSupabase(movementId).catch(() => undefined);
+
+  return { success: true, movementId, partId: affectedPartId };
+}
+
+/**
+ * Delete an entire stock addition batch (e.g. STK-ADD-0001) and restore part balances.
+ */
+export async function deleteStockAddedBatch(
+  batchId: string,
+): Promise<{ success: boolean; batchId: string; deletedItemsCount: number }> {
+  const allBatches = buildAllStockBatches();
+  const batch = allBatches.find((b) => b.id.toLowerCase() === batchId.toLowerCase());
+  if (!batch) throw new NotFoundError(`Stock addition batch "${batchId}" not found.`);
+
+  const movementIds = batch.items.map((it) => it.movementId);
+  const partQuantitiesToRevert = new Map<string, number>();
+
+  for (const it of batch.items) {
+    const cur = partQuantitiesToRevert.get(it.partId) ?? 0;
+    partQuantitiesToRevert.set(it.partId, cur + it.quantityAdded);
+  }
+
+  await mutate((draft) => {
+    const movIdSet = new Set(movementIds);
+    draft.stockMovements = draft.stockMovements.filter((m) => !movIdSet.has(m.id));
+
+    const now = nowIso();
+    for (const [partId, qty] of partQuantitiesToRevert.entries()) {
+      const part = draft.parts.find((p) => p.id === partId);
+      if (part) {
+        part.quantity = Math.max(0, round2(part.quantity - qty));
+        part.updatedAt = now;
+      }
+    }
+  });
+
+  for (const partId of partQuantitiesToRevert.keys()) {
+    void syncPartToSupabase(partId).catch(() => undefined);
+  }
+  void deleteStockMovementsFromSupabase(movementIds).catch(() => undefined);
+
+  return { success: true, batchId, deletedItemsCount: movementIds.length };
+}
+
+/**
+ * Update an existing stock addition item.
+ */
+export async function updateStockAddedItem(
+  movementId: string,
+  patch: StockItemPatch,
+): Promise<{ success: boolean; movementId: string }> {
+  let affectedPartId = '';
+
+  await mutate((draft) => {
+    const movement = draft.stockMovements.find((m) => m.id === movementId);
+    if (!movement) throw new NotFoundError('Stock movement record not found.');
+    affectedPartId = movement.partId;
+
+    const part = draft.parts.find((p) => p.id === movement.partId);
+
+    if (patch.quantityAdded !== undefined && patch.quantityAdded > 0) {
+      const diff = round2(patch.quantityAdded - movement.quantity);
+      movement.quantity = patch.quantityAdded;
+      if (part) {
+        part.quantity = Math.max(0, round2(part.quantity + diff));
+        movement.balanceAfter = part.quantity;
+      }
+    }
+
+    if (patch.reason !== undefined) {
+      movement.reason = patch.reason.trim() || movement.reason;
+    }
+
+    if (part) {
+      const now = nowIso();
+      part.updatedAt = now;
+
+      if (patch.purchaseCost !== undefined) part.purchaseCost = Math.max(0, patch.purchaseCost);
+      if (patch.sellingPrice !== undefined) part.sellingPrice = Math.max(0, patch.sellingPrice);
+      if (patch.supplierName !== undefined) part.supplierName = patch.supplierName.trim();
+      if (patch.partName !== undefined && patch.partName.trim()) {
+        part.name = patch.partName.trim();
+        movement.partName = part.name;
+      }
+      if (patch.brand !== undefined) part.brand = patch.brand.trim();
+      if (patch.model !== undefined) part.model = patch.model.trim();
+      if (patch.category !== undefined) part.category = patch.category.trim();
+    }
+  });
+
+  if (affectedPartId) {
+    void syncPartToSupabase(affectedPartId).catch(() => undefined);
+  }
+  void syncStockMovementToSupabase(movementId).catch(() => undefined);
+
+  return { success: true, movementId };
+}
+
+/**
+ * Update an entire batch (e.g. rename reason / supplier across all items).
+ */
+export async function updateStockAddedBatch(
+  batchId: string,
+  patch: StockBatchPatch,
+): Promise<{ success: boolean; batchId: string }> {
+  const allBatches = buildAllStockBatches();
+  const batch = allBatches.find((b) => b.id.toLowerCase() === batchId.toLowerCase());
+  if (!batch) throw new NotFoundError(`Stock addition batch "${batchId}" not found.`);
+
+  const movementIds = new Set(batch.items.map((it) => it.movementId));
+  const partIds = new Set(batch.items.map((it) => it.partId));
+
+  await mutate((draft) => {
+    const now = nowIso();
+    if (patch.reason !== undefined) {
+      const trimmedReason = patch.reason.trim();
+      for (const m of draft.stockMovements) {
+        if (movementIds.has(m.id)) {
+          m.reason = trimmedReason || m.reason;
+        }
+      }
+    }
+
+    if (patch.supplierName !== undefined) {
+      const trimmedSupplier = patch.supplierName.trim();
+      for (const p of draft.parts) {
+        if (partIds.has(p.id)) {
+          p.supplierName = trimmedSupplier;
+          p.updatedAt = now;
+        }
+      }
+    }
+  });
+
+  for (const partId of partIds) {
+    void syncPartToSupabase(partId).catch(() => undefined);
+  }
+  for (const mId of movementIds) {
+    void syncStockMovementToSupabase(mId).catch(() => undefined);
+  }
+
+  return { success: true, batchId };
 }

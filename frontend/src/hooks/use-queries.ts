@@ -603,3 +603,45 @@ export function useChangePassword() {
       api.patchKeepingSession<{ changed: boolean }>('/auth/password', body),
   });
 }
+
+export function useDeleteStockItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (movementId: string) => api.del(`/stock/history/items/${movementId}`),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
+export function useDeleteStockBatch() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: string) => api.del(`/stock/history/batches/${encodeURIComponent(batchId)}`),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
+export function useUpdateStockItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ movementId, patch }: { movementId: string; patch: Record<string, unknown> }) =>
+      api.patch(`/stock/history/items/${movementId}`, patch),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
+export function useUpdateStockBatch() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ batchId, patch }: { batchId: string; patch: Record<string, unknown> }) =>
+      api.patch(`/stock/history/batches/${encodeURIComponent(batchId)}`, patch),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}

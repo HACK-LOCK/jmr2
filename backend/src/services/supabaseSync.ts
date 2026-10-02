@@ -628,6 +628,32 @@ export async function deleteSupplierFromSupabase(supplierId: string): Promise<vo
 }
 
 /**
+ * Delete a single stock movement from Supabase.
+ */
+export async function deleteStockMovementFromSupabase(movementId: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  try {
+    await sb.from('stock_movements').delete().eq('id', movementId);
+  } catch (err) {
+    console.warn(`[supabase] Failed to delete stock movement ${movementId}:`, err);
+  }
+}
+
+/**
+ * Delete multiple stock movements from Supabase.
+ */
+export async function deleteStockMovementsFromSupabase(movementIds: string[]): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb || movementIds.length === 0) return;
+  try {
+    await sb.from('stock_movements').delete().in('id', movementIds);
+  } catch (err) {
+    console.warn(`[supabase] Failed to delete stock movements:`, err);
+  }
+}
+
+/**
  * Sync all stock (parts, stock movements, suppliers) to Supabase.
  */
 export async function syncAllStockToSupabase(): Promise<{ partsCount: number; suppliersCount: number; errors: string[] }> {

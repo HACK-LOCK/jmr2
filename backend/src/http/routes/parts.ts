@@ -130,6 +130,44 @@ partsRouter.get(
   }),
 );
 
+partsRouter.delete(
+  '/stock/history/items/:movementId',
+  asyncRoute(async (req, res) => {
+    const movementId = param(req, 'movementId');
+    const result = await stockHistoryService.deleteStockAddedItem(movementId);
+    sendData(res, result);
+  }),
+);
+
+partsRouter.patch(
+  '/stock/history/items/:movementId',
+  asyncRoute(async (req, res) => {
+    const movementId = param(req, 'movementId');
+    const patch = req.body as stockHistoryService.StockItemPatch;
+    const result = await stockHistoryService.updateStockAddedItem(movementId, patch);
+    sendData(res, result);
+  }),
+);
+
+partsRouter.delete(
+  '/stock/history/batches/:batchId',
+  asyncRoute(async (req, res) => {
+    const batchId = param(req, 'batchId');
+    const result = await stockHistoryService.deleteStockAddedBatch(batchId);
+    sendData(res, result);
+  }),
+);
+
+partsRouter.patch(
+  '/stock/history/batches/:batchId',
+  asyncRoute(async (req, res) => {
+    const batchId = param(req, 'batchId');
+    const patch = req.body as stockHistoryService.StockBatchPatch;
+    const result = await stockHistoryService.updateStockAddedBatch(batchId, patch);
+    sendData(res, result);
+  }),
+);
+
 /* ---------------------------- movements ----------------------------- */
 
 partsRouter.get(
