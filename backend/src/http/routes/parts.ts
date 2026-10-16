@@ -248,3 +248,19 @@ partsRouter.post(
   }),
 );
 
+partsRouter.get(
+  '/stock/clear/undo-status',
+  asyncRoute(async (_req, res) => {
+    sendData(res, partsService.getStockClearUndoStatus());
+  }),
+);
+
+partsRouter.post(
+  '/stock/clear/undo',
+  asyncRoute(async (req, res) => {
+    const result = await partsService.undoClearStock(actorName(req));
+    sendData(res, result.data, result.warning);
+  }),
+);
+
+

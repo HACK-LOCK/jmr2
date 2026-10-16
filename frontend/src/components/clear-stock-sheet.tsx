@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
-import { useClearStock, useParts } from '@/hooks/use-queries';
+import { useClearStock, useParts, useStockClearUndoStatus, useUndoClearStock } from '@/hooks/use-queries';
 import { PART_CATEGORIES } from '@shared/domain';
 import { cn } from '@/lib/utils';
 import { plural } from '@/lib/format';
@@ -23,6 +23,8 @@ export interface ClearStockSheetProps {
 export function ClearStockSheet({ open, onOpenChange }: ClearStockSheetProps): JSX.Element {
   const toast = useToast();
   const clearStock = useClearStock();
+  const undoClear = useUndoClearStock();
+  const { data: undoStatus } = useStockClearUndoStatus();
   const { data: parts } = useParts('', false);
 
   const [mode, setMode] = useState<'RESET_COUNT_ONLY' | 'DELETE_ITEMS'>('RESET_COUNT_ONLY');
@@ -101,6 +103,23 @@ export function ClearStockSheet({ open, onOpenChange }: ClearStockSheetProps): J
     }
   };
 
+  const handleUndo = async (): Promise<void> => {
+    try {
+      const res = await undoClear.mutateAsync();
+      const count = res.data?.restoredItems ?? 0;
+      toast.success(
+        'Stock restored',
+        `Successfully restored ${plural(count, 'item')} to their previous stock counts.`,
+      );
+      onOpenChange(false);
+    } catch (caught) {
+      toast.error(
+        'Could not undo stock clear',
+        caught instanceof Error ? caught.message : 'An error occurred while restoring stock.',
+      );
+    }
+  };
+
   return (
     <Sheet
       open={open}
@@ -110,6 +129,34 @@ export function ClearStockSheet({ open, onOpenChange }: ClearStockSheetProps): J
       className="sm:max-w-xl"
     >
       <div className="space-y-4 pb-4">
+        {/* Undo banner if a previous clear action is available */}
+        {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+          <div className="flex flex-col gap-2 rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <RotateCcw className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                Undo Previous Clear Available
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Restore {plural(undoStatus.data.snapshot.itemCount, 'item')} (
+                {undoStatus.data.snapshot.category === 'ALL'
+                  ? 'All Categories'
+                  : `${undoStatus.data.snapshot.category} Category`}
+                ) back to their previous counts.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 gap-1.5 border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-200 hover:bg-amber-500/30 font-bold"
+              loading={undoClear.isPending}
+              onClick={() => void handleUndo()}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Undo Now
+            </Button>
+          </div>
+        ) : null}
+
         {/* Safety banner */}
         <div className="flex items-start gap-2.5 rounded-xl border border-success/30 bg-success/10 p-3 text-xs text-foreground">
           <ShieldCheck className="h-5 w-5 shrink-0 text-success mt-0.5" />

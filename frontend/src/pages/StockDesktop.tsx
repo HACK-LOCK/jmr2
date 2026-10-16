@@ -16,6 +16,7 @@ import {
   PackagePlus,
   Pencil,
   Plus,
+  RotateCcw,
   Search as SearchIcon,
   Trash2,
   Upload,
@@ -39,11 +40,13 @@ import {
   useDeleteSupplier,
   useImportParts,
   useParts,
+  useStockClearUndoStatus,
   useStockIn,
   useStockOut,
   useStockReturn,
   useStockSummary,
   useSuppliers,
+  useUndoClearStock,
   useUpdatePart,
   useUpdateSupplier,
 } from '@/hooks/use-queries';
@@ -83,9 +86,28 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
   const { unlocked, lock } = useStockAccess();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const [clearStockOpen, setClearStockOpen] = useState(false);
+  const { data: undoStatus } = useStockClearUndoStatus();
+  const undoClear = useUndoClearStock();
   const raw = params.get('tab') ?? 'items';
   const tab = (TABS.find((entry) => entry.key === raw)?.key ?? 'items') as TabKey;
+
+  const handleUndo = async (): Promise<void> => {
+    try {
+      const res = await undoClear.mutateAsync();
+      const count = res.data?.restoredItems ?? 0;
+      toast.success(
+        'Stock restored',
+        `Successfully restored ${plural(count, 'item')} to their previous stock counts.`,
+      );
+    } catch (caught) {
+      toast.error(
+        'Could not undo stock clear',
+        caught instanceof Error ? caught.message : 'An error occurred while restoring stock.',
+      );
+    }
+  };
 
   // Old links that pointed at import / settings tabs now land on the doors.
   useEffect(() => {
@@ -123,6 +145,25 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
             </Button>
           }
         />
+        {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border-2 border-amber-500/60 bg-amber-500/15 p-3 text-xs font-semibold text-amber-900 dark:text-amber-200">
+            <div className="flex items-center gap-2 min-w-0">
+              <RotateCcw className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span className="truncate">
+                Stock counts were recently cleared for {plural(undoStatus.data.snapshot.itemCount, 'item')} ({undoStatus.data.snapshot.category === 'ALL' ? 'All Categories' : undoStatus.data.snapshot.category}).
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleUndo()}
+              loading={undoClear.isPending}
+              className="h-8 gap-1.5 shrink-0 border-amber-500/60 bg-amber-500/25 hover:bg-amber-500/40 text-amber-900 dark:text-amber-100 font-bold"
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Undo & Restore
+            </Button>
+          </div>
+        ) : null}
         <StockInSection />
         <ImportSection />
         <ClearStockSheet open={clearStockOpen} onOpenChange={setClearStockOpen} />
@@ -154,6 +195,26 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
           </div>
         }
       />
+
+      {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border-2 border-amber-500/60 bg-amber-500/15 p-3 text-xs font-semibold text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <RotateCcw className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="truncate">
+              Stock counts were recently cleared for {plural(undoStatus.data.snapshot.itemCount, 'item')} ({undoStatus.data.snapshot.category === 'ALL' ? 'All Categories' : undoStatus.data.snapshot.category}).
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void handleUndo()}
+            loading={undoClear.isPending}
+            className="h-8 gap-1.5 shrink-0 border-amber-500/60 bg-amber-500/25 hover:bg-amber-500/40 text-amber-900 dark:text-amber-100 font-bold"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Undo & Restore Counts
+          </Button>
+        </div>
+      ) : null}
 
       <StockSummaryStrip onPick={setTab} />
 

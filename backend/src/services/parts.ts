@@ -282,6 +282,47 @@ export async function importParts(
   });
 }
 
+export interface StockClearSnapshot {
+  id: string;
+  timestamp: string;
+  mode: 'RESET_COUNT_ONLY' | 'DELETE_ITEMS';
+  category: string;
+  items: {
+    id: string;
+    quantity: number;
+    purchaseCost: number;
+    sellingPrice: number;
+    active: boolean;
+  }[];
+}
+
+let lastStockClearSnapshot: StockClearSnapshot | null = null;
+
+export function getStockClearUndoStatus(): {
+  canUndo: boolean;
+  snapshot: {
+    id: string;
+    timestamp: string;
+    mode: 'RESET_COUNT_ONLY' | 'DELETE_ITEMS';
+    category: string;
+    itemCount: number;
+  } | null;
+} {
+  if (!lastStockClearSnapshot || lastStockClearSnapshot.items.length === 0) {
+    return { canUndo: false, snapshot: null };
+  }
+  return {
+    canUndo: true,
+    snapshot: {
+      id: lastStockClearSnapshot.id,
+      timestamp: lastStockClearSnapshot.timestamp,
+      mode: lastStockClearSnapshot.mode,
+      category: lastStockClearSnapshot.category,
+      itemCount: lastStockClearSnapshot.items.length,
+    },
+  };
+}
+
 /**
  * Clears or resets stock information strictly on the stock side.
  * Orders, bills, customer records, and invoices are 100% untouched.
@@ -309,6 +350,21 @@ export async function clearStock(
     });
 
     const targetPartIds = new Set(targetParts.map((p) => p.id));
+
+    // Save snapshot of current state before modification so user can Undo
+    lastStockClearSnapshot = {
+      id: newId('SNP'),
+      timestamp: now,
+      mode: input.mode,
+      category: isAll ? 'ALL' : categoryFilter,
+      items: targetParts.map((p) => ({
+        id: p.id,
+        quantity: p.quantity,
+        purchaseCost: p.purchaseCost,
+        sellingPrice: p.sellingPrice,
+        active: p.active,
+      })),
+    };
 
     if (input.mode === 'RESET_COUNT_ONLY') {
       for (const part of targetParts) {
@@ -355,6 +411,66 @@ export async function clearStock(
       affectedItems: targetParts.length,
       mode: input.mode,
       category: isAll ? 'ALL' : categoryFilter,
+    };
+  }).then((result) => {
+    void syncAllStockToSupabase().catch(() => undefined);
+    return { data: result.data };
+  });
+}
+
+/**
+ * Undoes the last stock clear action, restoring previous quantities, prices and active status.
+ */
+export async function undoClearStock(
+  user: string,
+): Promise<MutationResult<{ restoredItems: number; mode: string; category: string }>> {
+  if (!lastStockClearSnapshot || lastStockClearSnapshot.items.length === 0) {
+    throw new ValidationError('No stock clear action available to undo.');
+  }
+
+  const snapshot = lastStockClearSnapshot;
+  const now = nowIso();
+
+  return mutate((draft) => {
+    let restoredCount = 0;
+    for (const item of snapshot.items) {
+      const part = draft.parts.find((p) => p.id === item.id);
+      if (!part) continue;
+
+      const previousQty = part.quantity;
+      part.quantity = item.quantity;
+      part.purchaseCost = item.purchaseCost;
+      part.sellingPrice = item.sellingPrice;
+      part.active = item.active;
+      part.updatedAt = now;
+
+      const diff = item.quantity - previousQty;
+      if (diff !== 0) {
+        draft.stockMovements.push({
+          id: newId('MOV'),
+          partId: part.id,
+          partName: part.name,
+          orderId: '',
+          type: 'ADJUST',
+          quantity: Math.abs(diff),
+          reason: 'Undo stock clear',
+          balanceAfter: item.quantity,
+          date: now,
+          user,
+          idempotencyKey: '',
+          createdAt: now,
+        });
+      }
+      restoredCount++;
+    }
+
+    // Reset snapshot after successful undo
+    lastStockClearSnapshot = null;
+
+    return {
+      restoredItems: restoredCount,
+      mode: snapshot.mode,
+      category: snapshot.category,
     };
   }).then((result) => {
     void syncAllStockToSupabase().catch(() => undefined);

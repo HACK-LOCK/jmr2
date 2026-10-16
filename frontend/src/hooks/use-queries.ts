@@ -461,6 +461,34 @@ export function useClearStock() {
   });
 }
 
+export function useStockClearUndoStatus() {
+  return useQuery({
+    queryKey: ['stock', 'clear', 'undo-status'],
+    queryFn: () =>
+      api.get<{
+        canUndo: boolean;
+        snapshot: {
+          id: string;
+          timestamp: string;
+          mode: 'RESET_COUNT_ONLY' | 'DELETE_ITEMS';
+          category: string;
+          itemCount: number;
+        } | null;
+      }>('/stock/clear/undo-status'),
+  });
+}
+
+export function useUndoClearStock() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ restoredItems: number; mode: string; category: string }>('/stock/clear/undo'),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
 export function useUpdatePart(id: string) {
   const client = useQueryClient();
   return useMutation({

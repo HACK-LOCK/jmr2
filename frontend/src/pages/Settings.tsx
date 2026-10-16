@@ -32,10 +32,12 @@ import {
   useChangePassword,
   useCreateUser,
   useSettings,
+  useStockClearUndoStatus,
+  useUndoClearStock,
   useUpdateSettings,
   useUsers,
 } from '@/hooks/use-queries';
-import { dateTime } from '@/lib/format';
+import { dateTime, plural } from '@/lib/format';
 
 export default function Settings(): JSX.Element {
   const { user, signOut } = useAuth();
@@ -43,10 +45,28 @@ export default function Settings(): JSX.Element {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const { data: users } = useUsers();
+  const { data: undoStatus } = useStockClearUndoStatus();
+  const undoClear = useUndoClearStock();
   const isOwner = user?.role === 'OWNER';
   const [userOpen, setUserOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [clearStockOpen, setClearStockOpen] = useState(false);
+
+  const handleUndo = async (): Promise<void> => {
+    try {
+      const res = await undoClear.mutateAsync();
+      const count = res.data?.restoredItems ?? 0;
+      toast.success(
+        'Stock restored',
+        `Successfully restored ${plural(count, 'item')} to their previous stock counts.`,
+      );
+    } catch (caught) {
+      toast.error(
+        'Could not undo stock clear',
+        caught instanceof Error ? caught.message : 'An error occurred while restoring stock.',
+      );
+    }
+  };
 
   const [form, setForm] = useState({
     shopName: '',
@@ -292,6 +312,28 @@ export default function Settings(): JSX.Element {
           <InlineNotice tone="info">
             🔒 <strong>Billing Protected:</strong> Past bills, customer history, invoices, and repair tickets will never be affected.
           </InlineNotice>
+          {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                  <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  Undo Available
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Restore {plural(undoStatus.data.snapshot.itemCount, 'item')} back to their previous counts.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 gap-1.5 border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-200 hover:bg-amber-500/30 font-bold"
+                loading={undoClear.isPending}
+                onClick={() => void handleUndo()}
+              >
+                <RotateCcw className="h-3.5 w-3.5" /> Undo Now
+              </Button>
+            </div>
+          ) : null}
           <Button
             variant="outline"
             className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 font-bold"
