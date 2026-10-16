@@ -489,6 +489,24 @@ export function useUndoClearStock() {
   });
 }
 
+export function useDeletedParts() {
+  return useQuery({
+    queryKey: ['stock', 'deleted-items'],
+    queryFn: ({ signal }) => unwrap<PartListItem[]>('/stock/deleted-items', signal),
+  });
+}
+
+export function useRestoreDeletedParts() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (partIds?: string[]) =>
+      api.post<{ restoredCount: number }>('/stock/restore-deleted', { partIds }),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
 export function useUpdatePart(id: string) {
   const client = useQueryClient();
   return useMutation({

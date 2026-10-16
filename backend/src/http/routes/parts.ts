@@ -263,4 +263,22 @@ partsRouter.post(
   }),
 );
 
+partsRouter.get(
+  '/stock/deleted-items',
+  asyncRoute(async (_req, res) => {
+    sendData(res, partsService.listDeletedParts());
+  }),
+);
+
+partsRouter.post(
+  '/stock/restore-deleted',
+  asyncRoute(async (req, res) => {
+    const rawIds = (req.body as { partIds?: string[] })?.partIds;
+    const partIds = Array.isArray(rawIds) ? rawIds.map(String) : undefined;
+    const result = await partsService.restoreDeletedParts(partIds, actorName(req));
+    sendData(res, result.data, result.warning);
+  }),
+);
+
+
 

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { env } from '../config/env';
 import {
   isLowStock,
   round2,
@@ -296,7 +299,36 @@ export interface StockClearSnapshot {
   }[];
 }
 
-let lastStockClearSnapshot: StockClearSnapshot | null = null;
+const SNAPSHOT_FILE = path.join(env.dataDir, 'stock-clear-snapshot.json');
+
+function loadSnapshot(): StockClearSnapshot | null {
+  try {
+    if (fs.existsSync(SNAPSHOT_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SNAPSHOT_FILE, 'utf8'));
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
+        return data as StockClearSnapshot;
+      }
+    }
+  } catch {
+    // ignore corrupted snapshot file
+  }
+  return null;
+}
+
+function saveSnapshot(snapshot: StockClearSnapshot | null): void {
+  try {
+    if (!fs.existsSync(env.dataDir)) {
+      fs.mkdirSync(env.dataDir, { recursive: true });
+    }
+    if (snapshot && snapshot.items.length > 0) {
+      fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2), 'utf8');
+    } else if (fs.existsSync(SNAPSHOT_FILE)) {
+      fs.unlinkSync(SNAPSHOT_FILE);
+    }
+  } catch (err) {
+    console.error('Failed to persist stock clear snapshot:', err);
+  }
+}
 
 export function getStockClearUndoStatus(): {
   canUndo: boolean;
@@ -308,17 +340,18 @@ export function getStockClearUndoStatus(): {
     itemCount: number;
   } | null;
 } {
-  if (!lastStockClearSnapshot || lastStockClearSnapshot.items.length === 0) {
+  const snapshot = loadSnapshot();
+  if (!snapshot || snapshot.items.length === 0) {
     return { canUndo: false, snapshot: null };
   }
   return {
     canUndo: true,
     snapshot: {
-      id: lastStockClearSnapshot.id,
-      timestamp: lastStockClearSnapshot.timestamp,
-      mode: lastStockClearSnapshot.mode,
-      category: lastStockClearSnapshot.category,
-      itemCount: lastStockClearSnapshot.items.length,
+      id: snapshot.id,
+      timestamp: snapshot.timestamp,
+      mode: snapshot.mode,
+      category: snapshot.category,
+      itemCount: snapshot.items.length,
     },
   };
 }
@@ -352,7 +385,7 @@ export async function clearStock(
     const targetPartIds = new Set(targetParts.map((p) => p.id));
 
     // Save snapshot of current state before modification so user can Undo
-    lastStockClearSnapshot = {
+    const snapshot: StockClearSnapshot = {
       id: newId('SNP'),
       timestamp: now,
       mode: input.mode,
@@ -365,6 +398,7 @@ export async function clearStock(
         active: p.active,
       })),
     };
+    saveSnapshot(snapshot);
 
     if (input.mode === 'RESET_COUNT_ONLY') {
       for (const part of targetParts) {
@@ -424,11 +458,11 @@ export async function clearStock(
 export async function undoClearStock(
   user: string,
 ): Promise<MutationResult<{ restoredItems: number; mode: string; category: string }>> {
-  if (!lastStockClearSnapshot || lastStockClearSnapshot.items.length === 0) {
+  const snapshot = loadSnapshot();
+  if (!snapshot || snapshot.items.length === 0) {
     throw new ValidationError('No stock clear action available to undo.');
   }
 
-  const snapshot = lastStockClearSnapshot;
   const now = nowIso();
 
   return mutate((draft) => {
@@ -465,13 +499,71 @@ export async function undoClearStock(
     }
 
     // Reset snapshot after successful undo
-    lastStockClearSnapshot = null;
+    saveSnapshot(null);
 
     return {
       restoredItems: restoredCount,
       mode: snapshot.mode,
       category: snapshot.category,
     };
+  }).then((result) => {
+    void syncAllStockToSupabase().catch(() => undefined);
+    return { data: result.data };
+  });
+}
+
+/**
+ * Returns all stock items marked inactive (deleted from shelf).
+ * Preserves past invoices and orders while allowing 1-click re-stock.
+ */
+export function listDeletedParts(): PartListItem[] {
+  const db = read();
+  return db.parts
+    .filter((part) => !part.active)
+    .map((part) => ({
+      ...part,
+      low: isLowStock(part),
+      stockValue: round2(part.quantity * part.purchaseCost),
+      usedInOpenOrders: 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Restores / re-stocks deleted parts back to the shelf in 1 click.
+ */
+export async function restoreDeletedParts(
+  partIds?: string[],
+  user = 'Shop',
+): Promise<MutationResult<{ restoredCount: number }>> {
+  const now = nowIso();
+  const idSet = partIds && partIds.length > 0 ? new Set(partIds) : null;
+
+  return mutate((draft) => {
+    let count = 0;
+    for (const part of draft.parts) {
+      if (!part.active && (!idSet || idSet.has(part.id))) {
+        part.active = true;
+        part.updatedAt = now;
+        count++;
+
+        draft.stockMovements.push({
+          id: newId('MOV'),
+          partId: part.id,
+          partName: part.name,
+          orderId: '',
+          type: 'ADJUST',
+          quantity: 0,
+          reason: 'Re-stock restored item',
+          balanceAfter: part.quantity,
+          date: now,
+          user,
+          idempotencyKey: '',
+          createdAt: now,
+        });
+      }
+    }
+    return { restoredCount: count };
   }).then((result) => {
     void syncAllStockToSupabase().catch(() => undefined);
     return { data: result.data };
@@ -522,6 +614,22 @@ export async function deletePart(id: string): Promise<MutationResult<{ id: strin
   return mutate((draft) => {
     const part = draft.parts.find((item) => item.id === id);
     if (!part) throw new NotFoundError('Item not found.');
+    // Save snapshot of deleted item so user can undo / re-stock in one click
+    saveSnapshot({
+      id: newId('SNP'),
+      timestamp: nowIso(),
+      mode: 'DELETE_ITEMS',
+      category: part.category,
+      items: [
+        {
+          id: part.id,
+          quantity: part.quantity,
+          purchaseCost: part.purchaseCost,
+          sellingPrice: part.sellingPrice,
+          active: true,
+        },
+      ],
+    });
     part.active = false;
     part.updatedAt = nowIso();
     return { id };

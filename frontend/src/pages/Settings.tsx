@@ -6,6 +6,7 @@ import {
   Database,
   KeyRound,
   LogOut,
+  PackagePlus,
   RefreshCw,
   RotateCcw,
   Save,
@@ -31,6 +32,8 @@ import { getSupabaseInfo, testSupabaseConnection } from '@/lib/supabase';
 import {
   useChangePassword,
   useCreateUser,
+  useDeletedParts,
+  useRestoreDeletedParts,
   useSettings,
   useStockClearUndoStatus,
   useUndoClearStock,
@@ -47,6 +50,8 @@ export default function Settings(): JSX.Element {
   const { data: users } = useUsers();
   const { data: undoStatus } = useStockClearUndoStatus();
   const undoClear = useUndoClearStock();
+  const { data: deletedParts } = useDeletedParts();
+  const restoreDeleted = useRestoreDeletedParts();
   const isOwner = user?.role === 'OWNER';
   const [userOpen, setUserOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -57,13 +62,29 @@ export default function Settings(): JSX.Element {
       const res = await undoClear.mutateAsync();
       const count = res.data?.restoredItems ?? 0;
       toast.success(
-        'Stock restored',
+        'Stock re-stocked & restored',
         `Successfully restored ${plural(count, 'item')} to their previous stock counts.`,
       );
     } catch (caught) {
       toast.error(
         'Could not undo stock clear',
         caught instanceof Error ? caught.message : 'An error occurred while restoring stock.',
+      );
+    }
+  };
+
+  const handleRestoreDeleted = async (): Promise<void> => {
+    try {
+      const res = await restoreDeleted.mutateAsync();
+      const count = res.data?.restoredCount ?? 0;
+      toast.success(
+        'Stock re-stocked & restored',
+        `Successfully re-stocked ${plural(count, 'deleted item')} back to the active shelf.`,
+      );
+    } catch (caught) {
+      toast.error(
+        'Could not re-stock deleted items',
+        caught instanceof Error ? caught.message : 'An error occurred while re-stocking.',
       );
     }
   };
@@ -294,53 +315,122 @@ export default function Settings(): JSX.Element {
         </CardContent>
       </Card>
 
-      <Card className="border-destructive/30">
+      <Card className="border-amber-500/40 shadow-sm">
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <Trash2 className="h-5 w-5 text-destructive" /> Clear Stock Info
+            <CardTitle className="flex items-center gap-2 text-base">
+              <RotateCcw className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              Stock Protection, Undo & Re-stock
             </CardTitle>
-            <Badge variant="outline" className="border-destructive/40 text-destructive font-bold">
+            <Badge variant="outline" className="border-primary/40 text-primary font-bold">
               Stock Side Only
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
           <p className="text-xs text-muted-foreground leading-relaxed">
-            One-click reset or deletion of your stock counts and items. You can choose to reset counts to zero only (keeping item names and catalog info), or delete items permanently. You can also filter by category.
+            Protect your shelf stock. If stock counts were cleared or items mistakenly deleted, you can undo and re-stock them in 1-click right here. Past bills, invoices, customer history, and repair tickets will never be affected.
           </p>
           <InlineNotice tone="info">
-            🔒 <strong>Billing Protected:</strong> Past bills, customer history, invoices, and repair tickets will never be affected.
+            🔒 <strong>Billing 100% Protected:</strong> All sales, customer invoices, and past bills remain permanently safe.
           </InlineNotice>
-          {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-3">
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                  <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  Undo Available
+
+          {/* 1-Click Undo & Re-stock Cleared Counts */}
+          <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-3.5 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-wider text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                <RotateCcw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                1-Click Undo & Re-stock Cleared Stock
+              </span>
+              {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+                <Badge className="bg-amber-600 text-white font-bold text-[10px]">
+                  Undo Ready
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                  Safe & Active
+                </Badge>
+              )}
+            </div>
+
+            {undoStatus?.data?.canUndo && undoStatus.data.snapshot ? (
+              <div className="space-y-2.5">
+                <p className="text-xs text-amber-950 dark:text-amber-100 font-medium">
+                  Stock counts were cleared for <strong>{plural(undoStatus.data.snapshot.itemCount, 'item')}</strong> (
+                  {undoStatus.data.snapshot.category === 'ALL'
+                    ? 'All Categories'
+                    : `${undoStatus.data.snapshot.category} Category`}
+                  ) on {dateTime(undoStatus.data.snapshot.timestamp)}.
                 </p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Restore {plural(undoStatus.data.snapshot.itemCount, 'item')} back to their previous counts.
-                </p>
+                <Button
+                  size="sm"
+                  className="w-full gap-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-md"
+                  loading={undoClear.isPending}
+                  onClick={() => void handleUndo()}
+                >
+                  <RotateCcw className="h-4 w-4" /> Re-stock Cleared Stock in 1-Click (Undo)
+                </Button>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                <span>No stock cleared recently. If you ever mistakenly clear stock counts, a 1-click Undo & Re-stock button will appear here to restore everything immediately.</span>
+              </div>
+            )}
+          </div>
+
+          {/* 1-Click Restore Deleted Stock Items */}
+          {deletedParts && deletedParts.length > 0 ? (
+            <div className="rounded-xl border-2 border-destructive/30 bg-destructive/5 p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-destructive flex items-center gap-1.5">
+                  <PackagePlus className="h-4 w-4" />
+                  Deleted Stock Items ({deletedParts.length})
+                </span>
+                <Badge variant="outline" className="border-destructive/40 text-destructive font-bold text-[10px]">
+                  Off-Shelf
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {plural(deletedParts.length, 'stock item was', 'stock items were')} removed from the active shelf. Past bills keep their records. You can re-stock them back to shelf with 1-click.
+              </p>
+              <div className="max-h-36 overflow-y-auto space-y-1 rounded-lg border border-border/40 bg-background/50 p-2 text-xs">
+                {deletedParts.slice(0, 8).map((item) => (
+                  <div key={item.id} className="flex items-center justify-between py-0.5">
+                    <span className="truncate font-semibold">{item.name}</span>
+                    <span className="text-[11px] text-muted-foreground shrink-0 ml-2">
+                      Qty: {item.quantity} · {item.category}
+                    </span>
+                  </div>
+                ))}
+                {deletedParts.length > 8 ? (
+                  <p className="text-[10px] text-muted-foreground pt-1 text-center italic">
+                    + {deletedParts.length - 8} more items
+                  </p>
+                ) : null}
               </div>
               <Button
                 size="sm"
                 variant="outline"
-                className="shrink-0 gap-1.5 border-amber-500/60 bg-amber-500/20 text-amber-800 dark:text-amber-200 hover:bg-amber-500/30 font-bold"
-                loading={undoClear.isPending}
-                onClick={() => void handleUndo()}
+                className="w-full gap-2 border-primary/40 text-primary hover:bg-primary/10 font-bold text-xs"
+                loading={restoreDeleted.isPending}
+                onClick={() => void handleRestoreDeleted()}
               >
-                <RotateCcw className="h-3.5 w-3.5" /> Undo Now
+                <PackagePlus className="h-4 w-4" /> Re-stock All Deleted Items in 1-Click
               </Button>
             </div>
           ) : null}
-          <Button
-            variant="outline"
-            className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 font-bold"
-            onClick={() => setClearStockOpen(true)}
-          >
-            <RotateCcw className="h-4 w-4" /> Clear / Reset Stock Info...
-          </Button>
+
+          {/* Clear Stock Options Trigger */}
+          <div className="pt-1">
+            <Button
+              variant="outline"
+              className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 font-bold"
+              onClick={() => setClearStockOpen(true)}
+            >
+              <Trash2 className="h-4 w-4" /> Clear / Reset Stock Info...
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

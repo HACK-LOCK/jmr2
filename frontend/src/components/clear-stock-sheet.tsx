@@ -135,10 +135,10 @@ export function ClearStockSheet({ open, onOpenChange }: ClearStockSheetProps): J
             <div className="min-w-0 flex-1">
               <p className="text-xs font-black text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
                 <RotateCcw className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                Undo Previous Clear Available
+                Undo & Re-stock Available (1-Click)
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Restore {plural(undoStatus.data.snapshot.itemCount, 'item')} (
+                Re-stock and restore {plural(undoStatus.data.snapshot.itemCount, 'item')} (
                 {undoStatus.data.snapshot.category === 'ALL'
                   ? 'All Categories'
                   : `${undoStatus.data.snapshot.category} Category`}
@@ -152,7 +152,7 @@ export function ClearStockSheet({ open, onOpenChange }: ClearStockSheetProps): J
               loading={undoClear.isPending}
               onClick={() => void handleUndo()}
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Undo Now
+              <RotateCcw className="h-3.5 w-3.5" /> Undo & Re-stock
             </Button>
           </div>
         ) : null}

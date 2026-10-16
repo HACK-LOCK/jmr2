@@ -160,7 +160,7 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
               loading={undoClear.isPending}
               className="h-8 gap-1.5 shrink-0 border-amber-500/60 bg-amber-500/25 hover:bg-amber-500/40 text-amber-900 dark:text-amber-100 font-bold"
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Undo & Restore
+              <RotateCcw className="h-3.5 w-3.5" /> Undo & Re-stock in 1-Click
             </Button>
           </div>
         ) : null}
@@ -211,7 +211,7 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
             loading={undoClear.isPending}
             className="h-8 gap-1.5 shrink-0 border-amber-500/60 bg-amber-500/25 hover:bg-amber-500/40 text-amber-900 dark:text-amber-100 font-bold"
           >
-            <RotateCcw className="h-3.5 w-3.5" /> Undo & Restore Counts
+            <RotateCcw className="h-3.5 w-3.5" /> Undo & Re-stock in 1-Click
           </Button>
         </div>
       ) : null}
