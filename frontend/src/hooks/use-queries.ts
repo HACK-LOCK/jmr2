@@ -434,8 +434,27 @@ export function useCreatePart() {
 export function useImportParts() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: { items: { name: string; brand: string; quantity: number }[]; idempotencyKey: string }) =>
+    mutationFn: (body: {
+      items: { partId?: string; name: string; brand: string; category?: string; quantity: number }[];
+      idempotencyKey: string;
+    }) =>
       api.post<{ created: number; toppedUp: number; unchanged: number; total: number }>('/parts/import', body),
+    onSuccess: () => {
+      void client.invalidateQueries();
+    },
+  });
+}
+
+export function useClearStock() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      mode: 'RESET_COUNT_ONLY' | 'DELETE_ITEMS';
+      category?: string;
+      resetPrices?: boolean;
+      clearMovements?: boolean;
+    }) =>
+      api.post<{ affectedItems: number; mode: string; category: string }>('/stock/clear', body),
     onSuccess: () => {
       void client.invalidateQueries();
     },

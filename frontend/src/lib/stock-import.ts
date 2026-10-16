@@ -28,11 +28,16 @@
  * Inside Add / Import Stock, the items are neatly structured under Brand -> Category Section.
  */
 
+import type { PartListItem } from './types';
+
 export interface StockImportRow {
   name: string;
   brand: string;
   category: string;
   quantity: number;
+  partId?: string;
+  matchedPartName?: string;
+  currentStock?: number;
 }
 
 export interface StockCategoryGroup {
@@ -327,7 +332,92 @@ export function groupStockByBrandAndCategory(rows: StockImportRow[]): StockBrand
   return result;
 }
 
-export function parseStockList(text: string): StockImportPlan {
+export function isPureBrandHeading(name: string): boolean {
+  const clean = name.trim().toLowerCase();
+  for (const rule of BRAND_RULES) {
+    if (rule.brand.toLowerCase() === clean) return true;
+    for (const key of rule.keys) {
+      if (key.toLowerCase() === clean) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Finds the best matching available stock item from the shelf.
+ * Auto-selects exact matches, normalized matches, or token-based matches.
+ */
+export function findBestMatchingPart(
+  rawName: string,
+  brand: string,
+  availableParts?: PartListItem[],
+): PartListItem | null {
+  if (!availableParts || availableParts.length === 0 || !rawName.trim()) return null;
+
+  const clean = rawName.trim().toLowerCase();
+  const cleanBrand = brand.trim().toLowerCase();
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanNorm = norm(clean);
+  const combinedNorm = norm(`${cleanBrand} ${clean}`);
+
+  // 1. Exact match on part.name
+  const exact = availableParts.find(
+    (p) =>
+      p.name.trim().toLowerCase() === clean &&
+      (!cleanBrand || p.brand.trim().toLowerCase() === cleanBrand),
+  );
+  if (exact) return exact;
+
+  const exactNameOnly = availableParts.find(
+    (p) => p.name.trim().toLowerCase() === clean,
+  );
+  if (exactNameOnly) return exactNameOnly;
+
+  // 2. Normalized full string match (e.g. brand + name combined)
+  const normMatch = availableParts.find((p) => {
+    const pNorm = norm(p.name);
+    const pCombined = norm(`${p.brand} ${p.name}`);
+    return (
+      pNorm === cleanNorm ||
+      pNorm === combinedNorm ||
+      pCombined === cleanNorm ||
+      pCombined === combinedNorm
+    );
+  });
+  if (normMatch) return normMatch;
+
+  // 3. Token-based overlap match (e.g., "M30 Display" matching "Samsung M30 Display")
+  const tokens = clean
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+
+  if (tokens.length >= 2) {
+    let bestCandidate: PartListItem | null = null;
+    let maxMatchedTokens = 0;
+
+    for (const p of availableParts) {
+      const pText = `${p.brand} ${p.name} ${p.model}`.toLowerCase();
+      let matchedCount = 0;
+      for (const t of tokens) {
+        if (pText.includes(t)) matchedCount++;
+      }
+
+      if (matchedCount >= 2 && matchedCount > maxMatchedTokens) {
+        maxMatchedTokens = matchedCount;
+        bestCandidate = p;
+      }
+    }
+
+    if (bestCandidate && maxMatchedTokens >= Math.ceil(tokens.length * 0.7)) {
+      return bestCandidate;
+    }
+  }
+
+  return null;
+}
+
+export function parseStockList(text: string, availableParts?: PartListItem[]): StockImportPlan {
   const rows: StockImportRow[] = [];
   const brands: string[] = [];
   const skipped: string[] = [];
@@ -345,14 +435,20 @@ export function parseStockList(text: string): StockImportPlan {
     }
 
     const detectedB = detectBrand(clean);
-    const finalBrand = currentBrand || detectedB;
-    const finalCategory = detectCategory(clean);
+    const initialBrand = currentBrand || detectedB;
+    const initialCategory = detectCategory(clean);
+
+    // Auto-select available stock item if matching
+    const matched = findBestMatchingPart(clean, initialBrand, availableParts);
 
     rows.push({
       name: clean,
-      brand: finalBrand,
-      category: finalCategory,
+      brand: matched?.brand || initialBrand,
+      category: matched?.category || initialCategory,
       quantity,
+      partId: matched?.id,
+      matchedPartName: matched?.name,
+      currentStock: matched?.quantity,
     });
   };
 
@@ -375,9 +471,12 @@ export function parseStockList(text: string): StockImportPlan {
           push(matchLead[2], extractQtyNumber(matchLead[1]!));
         } else if (matchPlain && matchPlain[1]?.trim()) {
           push(matchPlain[1], extractQtyNumber(matchPlain[2]!));
-        } else {
+        } else if (isPureBrandHeading(cell)) {
           currentBrand = cleanItemName(cell);
           if (currentBrand) brands.push(currentBrand);
+        } else {
+          // Line without quantity -> default quantity 1
+          push(cell, 1);
         }
         continue;
       }
@@ -386,8 +485,13 @@ export function parseStockList(text: string): StockImportPlan {
       if (sheet) {
         push(sheet.name, sheet.quantity);
       } else {
-        currentBrand = cleanItemName(cells.join(' '));
-        if (currentBrand) brands.push(currentBrand);
+        const combined = cells.join(' ');
+        if (isPureBrandHeading(combined)) {
+          currentBrand = cleanItemName(combined);
+          if (currentBrand) brands.push(currentBrand);
+        } else {
+          push(combined, 1);
+        }
       }
       continue;
     }
@@ -414,11 +518,14 @@ export function parseStockList(text: string): StockImportPlan {
       continue;
     }
 
-    // No quantity found -> brand heading
-    const brandName = cleanItemName(line);
-    if (brandName) {
-      currentBrand = brandName;
+    // No quantity found -> check if pure brand heading or an item
+    const cleanLine = cleanItemName(line);
+    if (isPureBrandHeading(cleanLine)) {
+      currentBrand = cleanLine;
       brands.push(currentBrand);
+    } else if (cleanLine) {
+      // It's an item pasted by name without explicit quantity -> default quantity 1
+      push(cleanLine, 1);
     }
   }
 

@@ -7,8 +7,10 @@ import {
   KeyRound,
   LogOut,
   RefreshCw,
+  RotateCcw,
   Save,
   ShieldCheck,
+  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -21,6 +23,7 @@ import { Field } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Sheet } from '@/components/ui/sheet';
 import { Badge } from '@/components/ui/badge';
+import { ClearStockSheet } from '@/components/clear-stock-sheet';
 import { useToast } from '@/components/ui/toast';
 import { useAuth } from '@/lib/auth';
 import { request } from '@/lib/api';
@@ -43,6 +46,7 @@ export default function Settings(): JSX.Element {
   const isOwner = user?.role === 'OWNER';
   const [userOpen, setUserOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [clearStockOpen, setClearStockOpen] = useState(false);
 
   const [form, setForm] = useState({
     shopName: '',
@@ -270,6 +274,34 @@ export default function Settings(): JSX.Element {
         </CardContent>
       </Card>
 
+      <Card className="border-destructive/30">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" /> Clear Stock Info
+            </CardTitle>
+            <Badge variant="outline" className="border-destructive/40 text-destructive font-bold">
+              Stock Side Only
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            One-click reset or deletion of your stock counts and items. You can choose to reset counts to zero only (keeping item names and catalog info), or delete items permanently. You can also filter by category.
+          </p>
+          <InlineNotice tone="info">
+            🔒 <strong>Billing Protected:</strong> Past bills, customer history, invoices, and repair tickets will never be affected.
+          </InlineNotice>
+          <Button
+            variant="outline"
+            className="w-full gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 font-bold"
+            onClick={() => setClearStockOpen(true)}
+          >
+            <RotateCcw className="h-4 w-4" /> Clear / Reset Stock Info...
+          </Button>
+        </CardContent>
+      </Card>
+
       <SupabaseCard isOwner={isOwner} />
 
       <Card>
@@ -332,6 +364,7 @@ export default function Settings(): JSX.Element {
 
       <AddUserSheet open={userOpen} onOpenChange={setUserOpen} />
       <ChangePasswordSheet open={passwordOpen} onOpenChange={setPasswordOpen} />
+      <ClearStockSheet open={clearStockOpen} onOpenChange={setClearStockOpen} />
     </div>
   );
 }

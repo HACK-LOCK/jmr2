@@ -209,6 +209,7 @@ export const stockImportSchema = z.object({
   items: z
     .array(
       z.object({
+        partId: trimmed.max(40).optional().default(''),
         name: trimmed.min(1, 'Item name is required').max(120),
         brand: trimmed.max(60).default(''),
         category: trimmed.max(60).default('Repair Part'),
@@ -219,6 +220,13 @@ export const stockImportSchema = z.object({
     .max(500, 'Too many lines for one import'),
   /** One key per file, so sending the same list twice cannot double the stock. */
   idempotencyKey: trimmed.min(8).max(80).optional().default(''),
+});
+
+export const stockClearSchema = z.object({
+  mode: z.enum(['RESET_COUNT_ONLY', 'DELETE_ITEMS']),
+  category: trimmed.max(60).optional().default('ALL'),
+  resetPrices: z.boolean().optional().default(false),
+  clearMovements: z.boolean().optional().default(false),
 });
 
 export const stockOutSchema = z

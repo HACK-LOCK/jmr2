@@ -6,6 +6,7 @@ import {
   partCreateSchema,
   partUpdateSchema,
   stockAdjustSchema,
+  stockClearSchema,
   stockImportSchema,
   stockInSchema,
   stockOutSchema,
@@ -237,3 +238,13 @@ partsRouter.post(
     sendData(res, result.data, result.warning);
   }),
 );
+
+partsRouter.post(
+  '/stock/clear',
+  asyncRoute(async (req, res) => {
+    const input = stockClearSchema.parse(req.body);
+    const result = await partsService.clearStock(input, actorName(req));
+    sendData(res, result.data, result.warning);
+  }),
+);
+

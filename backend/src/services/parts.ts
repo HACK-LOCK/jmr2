@@ -10,7 +10,7 @@ import { newId, nowIso } from '../core/id';
 import { mutate, read, type MutationResult } from '../data/mutate';
 import { applyAdjust, applyStockIn, applyStockOut, applyReturn } from '../domain/stockOps';
 import type { z } from 'zod';
-import type { partCreateSchema, stockImportSchema } from '../validation/schemas';
+import type { partCreateSchema, stockClearSchema, stockImportSchema } from '../validation/schemas';
 import {
   syncAllStockToSupabase,
   syncPartToSupabase,
@@ -157,6 +157,12 @@ export interface StockImportResult {
   total: number;
 }
 
+export interface StockClearResult {
+  affectedItems: number;
+  mode: 'RESET_COUNT_ONLY' | 'DELETE_ITEMS';
+  category: string;
+}
+
 /**
  * A supplier list imported in one go. New names become items with their opening
  * stock; names that are already on the shelf get the quantity added on top, so
@@ -183,14 +189,42 @@ export async function importParts(
     const movementKey = (): string =>
       input.idempotencyKey ? `${input.idempotencyKey}#${movementIndex++}` : '';
 
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const item of input.items) {
       const name = item.name.trim();
       const brand = item.brand.trim();
-      const existing = draft.parts.find(
-        (part) =>
-          part.name.trim().toLowerCase() === name.toLowerCase() &&
-          part.brand.trim().toLowerCase() === brand.toLowerCase(),
-      );
+      const partId = (item.partId ?? '').trim();
+
+      // Find existing active part:
+      // 1. By direct partId if provided
+      // 2. By exact name and brand
+      // 3. By exact name alone
+      // 4. By normalized string match (e.g. brand + name combined or clean token match)
+      let existing: Part | undefined;
+      if (partId) {
+        existing = draft.parts.find((p) => p.id === partId && p.active);
+      }
+      if (!existing) {
+        const nameLower = name.toLowerCase();
+        const brandLower = brand.toLowerCase();
+        const targetNorm = norm(name);
+        const combinedNorm = norm(`${brand} ${name}`);
+
+        existing = draft.parts.find((part) => {
+          if (!part.active) return false;
+          const pNameLower = part.name.trim().toLowerCase();
+          const pBrandLower = part.brand.trim().toLowerCase();
+          const pNorm = norm(part.name);
+          const pCombinedNorm = norm(`${part.brand} ${part.name}`);
+
+          if (pNameLower === nameLower && (!brand || pBrandLower === brandLower)) return true;
+          if (pNameLower === nameLower) return true;
+          if (pCombinedNorm && (pCombinedNorm === combinedNorm || pCombinedNorm === targetNorm)) return true;
+          if (pNorm && (pNorm === combinedNorm || pNorm === targetNorm)) return true;
+          return false;
+        });
+      }
 
       if (existing) {
         if (item.quantity > 0) {
@@ -207,9 +241,9 @@ export async function importParts(
           result.unchanged += 1;
         }
       } else {
-        const partId = newId('PRT');
+        const newPartId = newId('PRT');
         const part: Part = {
-          id: partId,
+          id: newPartId,
           name,
           category: item.category?.trim() || 'Repair Part',
           brand,
@@ -228,7 +262,7 @@ export async function importParts(
         draft.parts.push(part);
         if (item.quantity > 0) {
           applyStockIn(draft, {
-            partId,
+            partId: newPartId,
             quantity: item.quantity,
             type: 'IN',
             reason: 'Stock import',
@@ -242,6 +276,86 @@ export async function importParts(
     }
 
     return result;
+  }).then((result) => {
+    void syncAllStockToSupabase().catch(() => undefined);
+    return { data: result.data };
+  });
+}
+
+/**
+ * Clears or resets stock information strictly on the stock side.
+ * Orders, bills, customer records, and invoices are 100% untouched.
+ *
+ * Mode:
+ *  - RESET_COUNT_ONLY: Resets stock count/quantity to 0 for matching items. Names and info stay in catalog.
+ *  - DELETE_ITEMS: Deletes items completely (marks inactive), removing them from active stock.
+ * Category:
+ *  - 'ALL' or empty: All stock items.
+ *  - Specific category: Only items in that category.
+ */
+export async function clearStock(
+  input: z.infer<typeof stockClearSchema>,
+  user: string,
+): Promise<MutationResult<StockClearResult>> {
+  const now = nowIso();
+  return mutate((draft) => {
+    const categoryFilter = (input.category ?? '').trim();
+    const isAll = !categoryFilter || categoryFilter.toUpperCase() === 'ALL';
+
+    const targetParts = draft.parts.filter((p) => {
+      if (!p.active) return false;
+      if (isAll) return true;
+      return p.category.trim().toLowerCase() === categoryFilter.toLowerCase();
+    });
+
+    const targetPartIds = new Set(targetParts.map((p) => p.id));
+
+    if (input.mode === 'RESET_COUNT_ONLY') {
+      for (const part of targetParts) {
+        const oldQty = part.quantity;
+        part.quantity = 0;
+        if (input.resetPrices) {
+          part.purchaseCost = 0;
+          part.sellingPrice = 0;
+        }
+        part.updatedAt = now;
+
+        if (oldQty !== 0) {
+          draft.stockMovements.push({
+            id: newId('MOV'),
+            partId: part.id,
+            partName: part.name,
+            orderId: '',
+            type: 'ADJUST',
+            quantity: Math.abs(oldQty),
+            reason: 'Stock count cleared to 0',
+            balanceAfter: 0,
+            date: now,
+            user,
+            idempotencyKey: '',
+            createdAt: now,
+          });
+        }
+      }
+    } else if (input.mode === 'DELETE_ITEMS') {
+      for (const part of targetParts) {
+        part.active = false;
+        part.quantity = 0;
+        part.updatedAt = now;
+      }
+    }
+
+    if (input.clearMovements) {
+      draft.stockMovements = draft.stockMovements.filter(
+        (m) => !targetPartIds.has(m.partId),
+      );
+    }
+
+    return {
+      affectedItems: targetParts.length,
+      mode: input.mode,
+      category: isAll ? 'ALL' : categoryFilter,
+    };
   }).then((result) => {
     void syncAllStockToSupabase().catch(() => undefined);
     return { data: result.data };

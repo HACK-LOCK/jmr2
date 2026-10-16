@@ -4,11 +4,13 @@ import {
   AlertTriangle,
   Boxes,
   Building2,
+  CheckCircle2,
   Download,
   FileSpreadsheet,
   History,
   Lock,
   Minus,
+  MoreVertical,
   Package,
   PackageMinus,
   PackagePlus,
@@ -20,6 +22,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { MiniStat, PageHeader, SectionCard } from '@/components/app-shell';
+import { ClearStockSheet } from '@/components/clear-stock-sheet';
 import { PartPicker } from '@/components/part-picker';
 import { StockGate } from '@/components/stock-gate';
 import { Button } from '@/components/ui/button';
@@ -80,6 +83,7 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
   const { unlocked, lock } = useStockAccess();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
+  const [clearStockOpen, setClearStockOpen] = useState(false);
   const raw = params.get('tab') ?? 'items';
   const tab = (TABS.find((entry) => entry.key === raw)?.key ?? 'items') as TabKey;
 
@@ -106,9 +110,22 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
         <PageHeader
           title="Add / Import Stock"
           subtitle="Add stock to one item or import a whole supplier list"
+          action={
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setClearStockOpen(true)}
+              aria-label="Stock options"
+              title="Clear / Reset Stock Info"
+              className="text-muted-foreground hover:text-destructive hover:border-destructive"
+            >
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+          }
         />
         <StockInSection />
         <ImportSection />
+        <ClearStockSheet open={clearStockOpen} onOpenChange={setClearStockOpen} />
       </div>
     );
   }
@@ -119,10 +136,22 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
         title="JMR STOCK" center
         subtitle="Everything about items, suppliers and sync"
         action={
-          <Button variant="outline" onClick={lock} className="gap-2">
-            <Lock className="h-4 w-4" />
-            <span className="hidden sm:inline">Lock</span>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setClearStockOpen(true)}
+              aria-label="Stock options - Clear or reset stock"
+              title="Clear / Reset Stock Info (Counts only or delete items)"
+              className="text-muted-foreground hover:text-destructive hover:border-destructive"
+            >
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+            <Button variant="outline" onClick={lock} className="gap-2">
+              <Lock className="h-4 w-4" />
+              <span className="hidden sm:inline">Lock</span>
+            </Button>
+          </div>
         }
       />
 
@@ -157,6 +186,8 @@ export default function StockDesktop({ mode = 'home' }: { mode?: StockMode } = {
       {tab === 'out' ? <StockOutSection /> : null}
       {tab === 'suppliers' ? <SuppliersSection /> : null}
       {tab === 'sync' ? <SheetSync /> : null}
+
+      <ClearStockSheet open={clearStockOpen} onOpenChange={setClearStockOpen} />
     </div>
   );
 }
@@ -939,24 +970,19 @@ Back Cover 10`;
 function ImportSection(): JSX.Element {
   const toast = useToast();
   const importParts = useImportParts();
+  const { data: allParts } = useParts('', false);
   const [text, setText] = useState('');
   const [fileName, setFileName] = useState('');
 
-  const plan = useMemo(() => parseStockList(text), [text]);
+  const plan = useMemo(() => parseStockList(text, allParts), [text, allParts]);
   const ready = plan.rows.length > 0 && !importParts.isPending;
-
-
-
-
-
-
-
 
   const run = async (): Promise<void> => {
     if (!ready) return;
     try {
       const response = await importParts.mutateAsync({
         items: plan.rows.map((row) => ({
+          partId: row.partId,
           name: row.name,
           brand: row.brand,
           category: row.category,
@@ -993,10 +1019,14 @@ function ImportSection(): JSX.Element {
         Paste a supplier list or upload a <strong>.txt</strong> / <strong>.csv</strong> sheet. A brand
         on its own line, then one item per line with its quantity before or after the name; a{' '}
         <strong>-</strong> or <strong>=</strong> in front of the number is fine (<code>Samsung</code>,{' '}
-        <code>Battery -5</code>, <code>=2 Charger</code>). Names that start with a known brand are
-        filed under it and part names are filed into their section (e.g. <strong>OPPO</strong> Battery
-        lands under Oppo in Battery) automatically.
+        <code>Battery -5</code>, <code>=2 Charger</code>).
       </InlineNotice>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-2.5 text-xs text-foreground flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+        <span>
+          <strong>Auto-Match Enabled:</strong> When pasting stock item names, matching items on your shelf are automatically selected and their counts increased by the given value while maintaining your brand & category layout.
+        </span>
+      </div>
 
       <pre className="overflow-x-auto rounded-xl border-2 bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
         {EXPORT_EXAMPLE}
@@ -1065,17 +1095,41 @@ function ImportSection(): JSX.Element {
                       {cGroup.rows.map((row, index) => (
                         <li
                           key={`${row.name}-${index}`}
-                          className="flex items-center justify-between gap-3 text-sm"
+                          className="flex items-center justify-between gap-3 text-sm py-1 border-b border-border/20 last:border-b-0"
                         >
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span className="truncate">{row.name}</span>
-                            {row.category !== 'Repair Part' ? (
-                              <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning-foreground">
-                                {row.category}
-                              </span>
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <div className="flex min-w-0 items-center gap-1.5 flex-wrap">
+                              <span className="truncate font-semibold">{row.name}</span>
+                              {row.partId ? (
+                                <span className="inline-flex items-center gap-1 rounded bg-success/15 px-1.5 py-0.5 text-[9px] font-bold text-success dark:text-success-foreground">
+                                  <CheckCircle2 className="h-3 w-3" /> Auto-Selected: {row.matchedPartName}
+                                </span>
+                              ) : (
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground uppercase">
+                                  New Item
+                                </span>
+                              )}
+                              {row.category !== 'Repair Part' ? (
+                                <span className="shrink-0 rounded-md bg-warning/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning-foreground">
+                                  {row.category}
+                                </span>
+                              ) : null}
+                            </div>
+                            {row.partId && typeof row.currentStock === 'number' ? (
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Shelf: <span className="tabular font-medium">{row.currentStock} pcs</span>
+                                {' + '}
+                                <span className="tabular font-bold text-success">+{row.quantity} pcs</span>
+                                {' ➔ '}
+                                <span className="tabular font-bold text-foreground">
+                                  {row.currentStock + row.quantity} pcs
+                                </span>
+                              </p>
                             ) : null}
                           </div>
-                          <span className="shrink-0 tabular font-bold">{row.quantity}</span>
+                          <span className="shrink-0 tabular font-black text-sm bg-muted/60 px-2 py-0.5 rounded">
+                            +{row.quantity}
+                          </span>
                         </li>
                       ))}
                     </div>

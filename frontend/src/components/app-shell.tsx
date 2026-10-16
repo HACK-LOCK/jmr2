@@ -14,6 +14,7 @@ import {
   PackagePlus,
   PlusCircle,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   Sun,
@@ -32,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Sheet } from '@/components/ui/sheet';
 import { DeviceLogSheet } from '@/components/device-log-sheet';
+import { ClearStockSheet } from '@/components/clear-stock-sheet';
 
 /** The app has exactly two areas. Nothing sits outside them. */
 export type SideKey = 'billing' | 'stock';
@@ -153,12 +155,14 @@ function MenuItems({
   side,
   onSideChange,
   onOpenLogs,
+  onOpenClearStock,
 }: {
   onSignOut: () => void;
   onPick: (to: string) => void;
   side?: SideKey;
   onSideChange?: (s: SideKey) => void;
   onOpenLogs?: () => void;
+  onOpenClearStock?: () => void;
 }): JSX.Element {
   const [activeSection, setActiveSection] = useState<'billing' | 'stock'>(
     side === 'stock' ? 'stock' : 'billing',
@@ -269,6 +273,12 @@ function MenuItems({
             label="Suppliers"
             onClick={() => onPick('/stock?tab=suppliers')}
           />
+          <MenuItem
+            icon={RotateCcw}
+            label="Clear / Reset Stock Info"
+            tone="destructive"
+            onClick={() => onOpenClearStock?.()}
+          />
         </div>
       )}
 
@@ -327,11 +337,13 @@ function HeaderMenu({
   side,
   onSideChange,
   onOpenLogs,
+  onOpenClearStock,
 }: {
   onSignOut: () => void;
   side: SideKey;
   onSideChange: (s: SideKey) => void;
   onOpenLogs: () => void;
+  onOpenClearStock?: () => void;
 }): JSX.Element {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -352,6 +364,7 @@ function HeaderMenu({
             side={side}
             onSideChange={(s) => { setOpen(false); onSideChange(s); }}
             onOpenLogs={() => { setOpen(false); onOpenLogs(); }}
+            onOpenClearStock={() => { setOpen(false); onOpenClearStock?.(); }}
             onPick={(to) => {
               setOpen(false);
               navigate(to);
@@ -375,12 +388,14 @@ function SidebarFooter({
   onToggleCollapsed,
   onSignOut,
   onOpenLogs,
+  onOpenClearStock,
 }: {
   collapsed: boolean;
   userName?: string;
   onToggleCollapsed: () => void;
   onSignOut: () => void;
   onOpenLogs: () => void;
+  onOpenClearStock?: () => void;
 }): JSX.Element {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -426,6 +441,10 @@ function SidebarFooter({
               onOpenLogs={() => {
                 setOpen(false);
                 onOpenLogs();
+              }}
+              onOpenClearStock={() => {
+                setOpen(false);
+                onOpenClearStock?.();
               }}
               onPick={(to) => {
                 setOpen(false);
@@ -509,6 +528,7 @@ export function AppShell({ children }: { children: React.ReactNode }): JSX.Eleme
   const [side, setSide] = useState<SideKey>(pathSide);
   const [collapsed, setCollapsed] = useState(false);
   const [logSheetOpen, setLogSheetOpen] = useState(false);
+  const [clearStockOpen, setClearStockOpen] = useState(false);
 
   const activeSide = pathSide !== side ? pathSide : side;
   const items = SIDES[activeSide].items;
@@ -584,6 +604,7 @@ export function AppShell({ children }: { children: React.ReactNode }): JSX.Eleme
           onToggleCollapsed={() => setCollapsed((value) => !value)}
           onSignOut={handleSignOut}
           onOpenLogs={() => setLogSheetOpen(true)}
+          onOpenClearStock={() => setClearStockOpen(true)}
         />
       </aside>
 
@@ -608,6 +629,7 @@ export function AppShell({ children }: { children: React.ReactNode }): JSX.Eleme
               side={activeSide}
               onSideChange={handleSideChange}
               onOpenLogs={() => setLogSheetOpen(true)}
+              onOpenClearStock={() => setClearStockOpen(true)}
             />
           </div>
 
@@ -630,6 +652,7 @@ export function AppShell({ children }: { children: React.ReactNode }): JSX.Eleme
       </div>
 
       <DeviceLogSheet open={logSheetOpen} onOpenChange={setLogSheetOpen} />
+      <ClearStockSheet open={clearStockOpen} onOpenChange={setClearStockOpen} />
     </div>
   );
 }
