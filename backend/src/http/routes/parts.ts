@@ -67,8 +67,25 @@ partsRouter.get(
         : undefined;
     const ids =
       typeof req.query.ids === 'string' ? req.query.ids.split(',').filter(Boolean) : undefined;
+    const cols = exportsService.parseStockExportColumns(req.query.cols);
+    let quantities: Record<string, number> | undefined;
+    if (typeof req.query.quantities === 'string') {
+      try {
+        quantities = JSON.parse(req.query.quantities);
+      } catch {
+        /* ignore invalid json */
+      }
+    }
 
-    const file = exportsService.exportLowStockParts({ q, brand, categories, level, ids });
+    const file = exportsService.exportLowStockParts({
+      q,
+      brand,
+      categories,
+      level,
+      ids,
+      cols,
+      quantities,
+    });
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

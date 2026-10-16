@@ -287,6 +287,61 @@ export function customerExportColumns(requested: readonly string[] = []): Custom
   return allCustomerExportColumns().filter((column) => wanted.has(column.key));
 }
 
+/* ------------------------------------------------------------------ */
+/* Stock export columns                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The columns a stock or low-stock export file may contain.
+ * Configurable so users can export specific columns like 'Item Name only'
+ * or any custom subset for supplier re-orders.
+ */
+export const STOCK_EXPORT_COLUMNS = [
+  { key: 'name', header: 'Item Name', width: 32 },
+  { key: 'brand', header: 'Brand', width: 16 },
+  { key: 'model', header: 'Model', width: 16 },
+  { key: 'category', header: 'Category', width: 20 },
+  { key: 'quantity', header: 'Current Stock', width: 14 },
+  { key: 'minQuantity', header: 'Min Qty', width: 12 },
+  { key: 'orderQty', header: 'Order Qty', width: 14 },
+  { key: 'purchaseCost', header: 'Cost (₹)', width: 14, money: true },
+  { key: 'supplierName', header: 'Supplier', width: 22 },
+] as const;
+
+export type StockExportKey = (typeof STOCK_EXPORT_COLUMNS)[number]['key'];
+
+export interface StockExportColumn {
+  key: StockExportKey;
+  header: string;
+  width: number;
+  money: boolean;
+}
+
+const STOCK_EXPORT_BY_KEY = new Map<string, StockExportColumn>(
+  STOCK_EXPORT_COLUMNS.map((column) => [
+    column.key,
+    { key: column.key, header: column.header, width: column.width, money: 'money' in column },
+  ]),
+);
+
+export function isStockExportKey(value: string): value is StockExportKey {
+  return STOCK_EXPORT_BY_KEY.has(value);
+}
+
+/** Every column in default order. */
+export function allStockExportColumns(): StockExportColumn[] {
+  return STOCK_EXPORT_COLUMNS.map((column) => STOCK_EXPORT_BY_KEY.get(column.key) as StockExportColumn);
+}
+
+/**
+ * Filter columns by requested keys preserving the defined order.
+ */
+export function stockExportColumns(requested: readonly string[] = []): StockExportColumn[] {
+  const wanted = new Set(requested.filter(isStockExportKey));
+  if (wanted.size === 0) return allStockExportColumns();
+  return allStockExportColumns().filter((column) => wanted.has(column.key));
+}
+
 export interface RepairOrder {
   id: string;
   customerId: string;

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckSquare,
+  Columns3,
   Copy,
   FileSpreadsheet,
   FileText,
@@ -12,12 +13,14 @@ import {
   Square,
   X,
 } from 'lucide-react';
+import { StockColumnSheet } from '@/components/stock-column-sheet';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
 import { downloadProtectedFile } from '@/lib/api';
 import { money, plural, todayIso } from '@/lib/format';
+import { useStockExportColumns } from '@/lib/stock-columns';
 import { cn } from '@/lib/utils';
 import type { PartListItem } from '@/lib/types';
 
@@ -52,6 +55,8 @@ export function LowStockOrderSheet({
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [search, setSearch] = useState<string>('');
+  const stockColumns = useStockExportColumns();
+  const [columnsOpen, setColumnsOpen] = useState(false);
 
   // Selected piece IDs (specific piece selection)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(items.map((i) => i.id)));
@@ -199,7 +204,7 @@ export function LowStockOrderSheet({
     return selectedItems.reduce((sum, item) => sum + getOrderQty(item) * item.purchaseCost, 0);
   }, [selectedItems, customQuantities]);
 
-  // Export to Excel (.xlsx)
+  // Export to Excel (.xlsx) with chosen columns
   const downloadExcel = async (): Promise<void> => {
     if (selectedItems.length === 0) {
       toast.error('No items selected', 'Please select at least one piece to download.');
@@ -212,6 +217,10 @@ export function LowStockOrderSheet({
       if (selectedCategories.length > 0) queryParams.set('categories', selectedCategories.join(','));
       if (level !== 'all') queryParams.set('level', level);
       if (search.trim()) queryParams.set('q', search.trim());
+      queryParams.set('cols', stockColumns.query);
+      if (Object.keys(customQuantities).length > 0) {
+        queryParams.set('quantities', JSON.stringify(customQuantities));
+      }
 
       // If user selected a subset of filtered items, pass exact IDs
       if (selectedItems.length !== filteredItems.length || filteredItems.length !== items.length) {
@@ -219,9 +228,12 @@ export function LowStockOrderSheet({
       }
 
       await downloadProtectedFile(`/parts/low-stock.xlsx?${queryParams.toString()}`);
+      const colNote = stockColumns.narrowed
+        ? ` in ${plural(stockColumns.selected.length, 'column')}`
+        : '';
       toast.success(
         'Excel downloaded',
-        `${plural(selectedItems.length, 'item')} order list (${totalUnits} units) saved.`,
+        `${plural(selectedItems.length, 'item')} order list (${totalUnits} units)${colNote} saved.`,
       );
     } catch (caught) {
       toast.error(
@@ -233,24 +245,15 @@ export function LowStockOrderSheet({
     }
   };
 
-  // Export to CSV client-side
+  // Export to CSV client-side with chosen columns
   const downloadCsv = (): void => {
     if (selectedItems.length === 0) {
       toast.error('No items selected', 'Please select at least one piece to download.');
       return;
     }
 
-    const headers = [
-      'Item Name',
-      'Brand',
-      'Model',
-      'Category',
-      'Available Qty',
-      'Min Qty',
-      'Order Qty',
-      'Cost (Rs)',
-      'Supplier',
-    ];
+    const activeCols = stockColumns.selected;
+    const headers = activeCols.map((c) => c.header);
 
     const escapeCsv = (val: string | number | null | undefined): string => {
       const s = String(val ?? '');
@@ -260,17 +263,30 @@ export function LowStockOrderSheet({
       return s;
     };
 
-    const rows = selectedItems.map((item) => [
-      escapeCsv(item.name),
-      escapeCsv(item.brand),
-      escapeCsv(item.model),
-      escapeCsv(item.category || 'Other'),
-      escapeCsv(item.quantity),
-      escapeCsv(item.minQuantity),
-      escapeCsv(getOrderQty(item)),
-      escapeCsv(item.purchaseCost),
-      escapeCsv(item.supplierName || '-'),
-    ]);
+    const rows = selectedItems.map((item) =>
+      activeCols.map((col) => {
+        switch (col.key) {
+          case 'name':
+            return escapeCsv(item.name);
+          case 'brand':
+            return escapeCsv(item.brand);
+          case 'model':
+            return escapeCsv(item.model);
+          case 'category':
+            return escapeCsv(item.category || 'Other');
+          case 'quantity':
+            return escapeCsv(item.quantity);
+          case 'minQuantity':
+            return escapeCsv(item.minQuantity);
+          case 'orderQty':
+            return escapeCsv(getOrderQty(item));
+          case 'purchaseCost':
+            return escapeCsv(item.purchaseCost);
+          case 'supplierName':
+            return escapeCsv(item.supplierName || '-');
+        }
+      }),
+    );
 
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -283,15 +299,28 @@ export function LowStockOrderSheet({
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    toast.success('CSV downloaded', `${plural(selectedItems.length, 'item')} order list exported.`);
+    const colNote = stockColumns.narrowed
+      ? ` in ${plural(stockColumns.selected.length, 'column')}`
+      : '';
+    toast.success('CSV downloaded', `${plural(selectedItems.length, 'item')} order list${colNote} exported.`);
   };
 
-  // Copy WhatsApp formatted order message
+  // Copy WhatsApp formatted order message with chosen columns
   const copyForWhatsApp = async (): Promise<void> => {
     if (selectedItems.length === 0) {
       toast.error('No items selected', 'Please select at least one piece.');
       return;
     }
+
+    const hasName = stockColumns.isSelected('name');
+    const hasBrand = stockColumns.isSelected('brand');
+    const hasModel = stockColumns.isSelected('model');
+    const hasCategory = stockColumns.isSelected('category');
+    const hasQuantity = stockColumns.isSelected('quantity');
+    const hasMinQuantity = stockColumns.isSelected('minQuantity');
+    const hasOrderQty = stockColumns.isSelected('orderQty');
+    const hasCost = stockColumns.isSelected('purchaseCost');
+    const hasSupplier = stockColumns.isSelected('supplierName');
 
     const lines: string[] = [
       `📦 *JMR STOCK ORDER LIST*`,
@@ -301,24 +330,67 @@ export function LowStockOrderSheet({
 
     selectedItems.forEach((item, index) => {
       const orderQty = getOrderQty(item);
-      const brandModel = [item.brand, item.model].filter(Boolean).join(' ');
-      const desc = brandModel ? `${item.name} (${brandModel})` : item.name;
-      const stockInfo = item.quantity <= 0 ? 'Out of Stock' : `Stock: ${item.quantity}`;
-      lines.push(`${index + 1}. *${desc}* — *Qty: ${orderQty} pcs* [${stockInfo}, Min: ${item.minQuantity}]`);
+
+      // Name & brand/model
+      const brandModel = [hasBrand ? item.brand : '', hasModel ? item.model : ''].filter(Boolean).join(' ');
+      let desc = hasName ? item.name : '';
+      if (brandModel) {
+        desc = desc ? `${desc} (${brandModel})` : brandModel;
+      }
+      if (!desc) {
+        desc = item.name;
+      }
+
+      let line = `${index + 1}. *${desc}*`;
+      if (hasOrderQty) {
+        line += ` — *Qty: ${orderQty} pcs*`;
+      }
+
+      const metaTags: string[] = [];
+      if (hasCategory && item.category) {
+        metaTags.push(item.category);
+      }
+      if (hasQuantity) {
+        const stockInfo = item.quantity <= 0 ? 'Out of Stock' : `Stock: ${item.quantity}`;
+        metaTags.push(stockInfo);
+      }
+      if (hasMinQuantity) {
+        metaTags.push(`Min: ${item.minQuantity}`);
+      }
+      if (hasCost && item.purchaseCost > 0) {
+        metaTags.push(`Cost: ₹${item.purchaseCost}`);
+      }
+      if (hasSupplier && item.supplierName) {
+        metaTags.push(`Supplier: ${item.supplierName}`);
+      }
+
+      if (metaTags.length > 0) {
+        line += ` [${metaTags.join(', ')}]`;
+      }
+
+      lines.push(line);
     });
 
     lines.push(`----------------------------------------`);
-    lines.push(`📊 *Total Items:* ${selectedItems.length} | *Total Units:* ${totalUnits}`);
-    if (estimatedCost > 0) {
+    let summaryLine = `📊 *Total Items:* ${selectedItems.length}`;
+    if (hasOrderQty) {
+      summaryLine += ` | *Total Units:* ${totalUnits}`;
+    }
+    lines.push(summaryLine);
+
+    if (hasCost && estimatedCost > 0) {
       lines.push(`💰 *Est. Amount:* ${money(estimatedCost)}`);
     }
 
     const text = lines.join('\n');
     try {
       await navigator.clipboard.writeText(text);
+      const colNote = stockColumns.narrowed
+        ? ` (${plural(stockColumns.selected.length, 'column')})`
+        : '';
       toast.success(
         'Order list copied!',
-        'Formatted WhatsApp message ready to paste directly to your supplier.',
+        `Formatted WhatsApp message${colNote} ready to paste directly to your supplier.`,
       );
     } catch {
       toast.error('Failed to copy', 'Please check clipboard permissions.');
@@ -527,6 +599,31 @@ export function LowStockOrderSheet({
 
             <div className="flex items-center gap-2">
               <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setColumnsOpen(true)}
+                className="h-7 text-xs font-bold px-2.5 gap-1.5 border-amber-500/40 text-foreground hover:bg-amber-500/10"
+                title="Choose which columns to include in download and WhatsApp"
+              >
+                <Columns3 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Columns</span>
+                <span className="rounded bg-muted px-1.5 py-0.2 text-[10px] tabular font-bold text-muted-foreground">
+                  {stockColumns.selected.length}
+                </span>
+              </Button>
+              {stockColumns.narrowed ? (
+                <button
+                  type="button"
+                  onClick={() => setColumnsOpen(true)}
+                  className="hidden sm:inline-flex items-center gap-1 text-2xs font-bold text-amber-600 dark:text-amber-400 bg-amber-500/15 hover:bg-amber-500/25 rounded-md px-2 py-0.5 transition-colors"
+                  title="Click to edit download columns"
+                >
+                  {stockColumns.selected.length === 1
+                    ? `${stockColumns.selected[0]?.header ?? ''} only`
+                    : `${stockColumns.selected.length} cols`}
+                </button>
+              ) : null}
+              <Button
                 variant="ghost"
                 size="sm"
                 className="h-7 text-xs font-bold px-2"
@@ -696,6 +793,17 @@ export function LowStockOrderSheet({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setColumnsOpen(true)}
+              className="gap-1.5 flex-1 sm:flex-none font-bold border-amber-500/40 text-foreground hover:bg-amber-500/10"
+              title="Customize columns for Excel, CSV and WhatsApp"
+            >
+              <Columns3 className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <span>Columns ({stockColumns.selected.length})</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
               onClick={copyForWhatsApp}
               disabled={selectedItems.length === 0}
               className="gap-1.5 flex-1 sm:flex-none font-bold"
@@ -731,6 +839,13 @@ export function LowStockOrderSheet({
           </div>
         </DialogFooter>
       </DialogContent>
+
+      <StockColumnSheet
+        open={columnsOpen}
+        onOpenChange={setColumnsOpen}
+        choice={stockColumns}
+        rowCount={selectedItems.length}
+      />
     </Dialog>
   );
 }

@@ -4,7 +4,10 @@ import {
   isLowStock,
   payableAmount,
   round2,
+  stockExportColumns,
+  allStockExportColumns,
   type CustomerExportColumn,
+  type StockExportColumn,
   type RepairOrder,
 } from '../../../shared/domain';
 import { shopDateString } from '../core/datetime';
@@ -414,12 +417,25 @@ export async function exportCustomersPdf(
   return { filename: customersFilename('pdf'), buffer };
 }
 
+/** Reads the ticked stock column keys out of a `?cols=` query value. */
+export function parseStockExportColumns(raw: unknown): StockExportColumn[] {
+  const asked =
+    typeof raw === 'string'
+      ? raw.split(',')
+      : Array.isArray(raw)
+        ? raw.flatMap((value) => (typeof value === 'string' ? value.split(',') : []))
+        : [];
+  return stockExportColumns(asked);
+}
+
 export interface LowStockExportInput {
   q?: string;
   brand?: string;
   categories?: string[];
   level?: 'all' | 'zero' | 'one';
   ids?: string[];
+  cols?: StockExportColumn[];
+  quantities?: Record<string, number>;
 }
 
 export function exportLowStockParts(input: LowStockExportInput = {}): { filename: string; buffer: Buffer } {
@@ -475,44 +491,65 @@ export function exportLowStockParts(input: LowStockExportInput = {}): { filename
     return a.name.localeCompare(b.name);
   });
 
-  const columns: XlsxColumn[] = [
-    { header: 'Item Name', width: 32 },
-    { header: 'Brand', width: 16 },
-    { header: 'Model', width: 16 },
-    { header: 'Category', width: 20 },
-    { header: 'Available Qty', width: 14 },
-    { header: 'Min Qty', width: 12 },
-    { header: 'Order Qty', width: 14 },
-    { header: 'Cost (₹)', width: 14, money: true },
-    { header: 'Supplier', width: 22 },
-  ];
+  const chosenColumns = input.cols && input.cols.length > 0 ? input.cols : allStockExportColumns();
+
+  const columns: XlsxColumn[] = chosenColumns.map((col) => ({
+    header: col.header,
+    width: col.width,
+    money: col.money,
+  }));
 
   const rows = parts.map((part) => {
-    const orderQty = Math.max(1, Math.max(part.minQuantity, 2) - part.quantity);
-    return [
-      part.name,
-      part.brand,
-      part.model,
-      part.category || '-',
-      part.quantity,
-      part.minQuantity,
-      orderQty,
-      part.purchaseCost,
-      part.supplierName || '-',
-    ];
+    const customQty = input.quantities?.[part.id];
+    const orderQty =
+      customQty !== undefined && customQty > 0
+        ? customQty
+        : Math.max(1, Math.max(part.minQuantity, 2) - part.quantity);
+
+    return chosenColumns.map((col) => {
+      switch (col.key) {
+        case 'name':
+          return part.name;
+        case 'brand':
+          return part.brand || '-';
+        case 'model':
+          return part.model || '-';
+        case 'category':
+          return part.category || '-';
+        case 'quantity':
+          return part.quantity;
+        case 'minQuantity':
+          return part.minQuantity;
+        case 'orderQty':
+          return orderQty;
+        case 'purchaseCost':
+          return part.purchaseCost;
+        case 'supplierName':
+          return part.supplierName || '-';
+      }
+    });
   });
 
   const outOfStockCount = parts.filter((p) => p.quantity <= 0).length;
   const criticalCount = parts.filter((p) => p.quantity === 1).length;
-  const totalOrderUnits = parts.reduce(
-    (sum, p) => sum + Math.max(1, Math.max(p.minQuantity, 2) - partOrderQty(p)),
-    0,
-  );
+  const totalOrderUnits = parts.reduce((sum, p) => {
+    const customQty = input.quantities?.[p.id];
+    return (
+      sum +
+      (customQty !== undefined && customQty > 0
+        ? customQty
+        : Math.max(1, Math.max(p.minQuantity, 2) - p.quantity))
+    );
+  }, 0);
   const estimatedCost = round2(
-    parts.reduce(
-      (sum, p) => sum + Math.max(1, Math.max(p.minQuantity, 2) - p.quantity) * p.purchaseCost,
-      0,
-    ),
+    parts.reduce((sum, p) => {
+      const customQty = input.quantities?.[p.id];
+      const qty =
+        customQty !== undefined && customQty > 0
+          ? customQty
+          : Math.max(1, Math.max(p.minQuantity, 2) - p.quantity);
+      return sum + qty * p.purchaseCost;
+    }, 0),
   );
 
   const buffer = buildWorkbook([
